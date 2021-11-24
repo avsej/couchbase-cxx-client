@@ -65,8 +65,8 @@ struct mcbp_command : public std::enable_shared_from_this<mcbp_command<Manager, 
     void start(mcbp_command_handler&& handler)
     {
         span_ = manager_->tracer()->start_span(tracing::span_name_for_mcbp_command(encoded_request_type::body_type::opcode), nullptr);
-        span_->add_tag(tracing::attributes::service, tracing::service::key_value);
-        span_->add_tag(tracing::attributes::instance, request.id.bucket());
+        add_tag(tracing::attributes::service, tracing::service::key_value);
+        add_tag(tracing::attributes::instance, request.id.bucket());
 
         handler_ = std::move(handler);
         deadline.expires_after(request.timeout);
@@ -90,12 +90,19 @@ struct mcbp_command : public std::enable_shared_from_this<mcbp_command<Manager, 
         deadline.cancel();
     }
 
+    template<typename T>
+    void add_tag(const std::string &name, T value) {
+        if (span_ != nullptr) {
+            span_->add_tag(name, value);
+        }
+    }
+
     void invoke_handler(std::error_code ec, std::optional<io::mcbp_message> msg = {})
     {
         if (span_ != nullptr) {
             if (msg) {
                 auto server_duration_us = static_cast<std::uint64_t>(protocol::parse_server_duration_us(msg.value()));
-                span_->add_tag(tracing::attributes::server_duration, server_duration_us);
+                add_tag(tracing::attributes::server_duration, server_duration_us);
             }
             span_->end();
             span_ = nullptr;
@@ -164,7 +171,7 @@ struct mcbp_command : public std::enable_shared_from_this<mcbp_command<Manager, 
     {
         opaque_ = session_->next_opaque();
         request.opaque = *opaque_;
-        span_->add_tag(tracing::attributes::operation_id, fmt::format("0x{:x}", request.opaque));
+        add_tag(tracing::attributes::operation_id, fmt::format("0x{:x}", request.opaque));
         if (request.id.use_collections() && !request.id.is_collection_resolved()) {
             if (session_->supports_feature(protocol::hello_feature::collections)) {
                 auto collection_id = session_->get_collection_uid(request.id.collection_path());
@@ -205,13 +212,13 @@ struct mcbp_command : public std::enable_shared_from_this<mcbp_command<Manager, 
 
               self->retry_backoff.cancel();
               if (ec == asio::error::operation_aborted) {
-                  self->span_->add_tag(tracing::attributes::orphan, "aborted");
+                  self->add_tag(tracing::attributes::orphan, "aborted");
                   return self->invoke_handler(make_error_code(self->request.retries.idempotent ? error::common_errc::unambiguous_timeout
                                                                                                : error::common_errc::ambiguous_timeout));
               }
               if (ec == error::common_errc::request_canceled) {
                   if (reason == io::retry_reason::do_not_retry) {
-                      self->span_->add_tag(tracing::attributes::orphan, "canceled");
+                      self->add_tag(tracing::attributes::orphan, "canceled");
                       return self->invoke_handler(ec);
                   }
                   return io::retry_orchestrator::maybe_retry(self->manager_, self, reason, ec);
@@ -271,9 +278,9 @@ struct mcbp_command : public std::enable_shared_from_this<mcbp_command<Manager, 
             return;
         }
         session_ = std::move(session);
-        span_->add_tag(tracing::attributes::remote_socket, session_->remote_address());
-        span_->add_tag(tracing::attributes::local_socket, session_->local_address());
-        span_->add_tag(tracing::attributes::local_id, session_->id());
+        add_tag(tracing::attributes::remote_socket, session_->remote_address());
+        add_tag(tracing::attributes::local_socket, session_->local_address());
+        add_tag(tracing::attributes::local_id, session_->id());
         send();
     }
 };
