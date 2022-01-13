@@ -46,9 +46,9 @@ struct query_index_drop_request {
     std::string client_context_id{ uuid::to_string(uuid::random()) };
     static constexpr auto namespace_id = "default";
     std::string bucket_name;
-    std::string scope_name;
-    std::string collection_name;
-    std::string index_name;
+    std::optional<std::string> scope_name{};
+    std::optional<std::string> collection_name{};
+    std::optional<std::string> index_name{};
     bool is_primary{ false };
     bool ignore_if_does_not_exist{ false };
     std::chrono::milliseconds timeout{ timeout_defaults::management_timeout };

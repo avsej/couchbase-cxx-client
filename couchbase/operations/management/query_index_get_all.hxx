@@ -57,6 +57,8 @@ struct query_index_get_all_request {
 
     std::string client_context_id{ uuid::to_string(uuid::random()) };
     std::string bucket_name;
+    std::optional<std::string> scope_name{};
+    std::optional<std::string> collection_name{};
     std::chrono::milliseconds timeout{ timeout_defaults::management_timeout };
 
     [[nodiscard]] std::error_code encode_to(encoded_request_type& encoded, http_context& context) const;

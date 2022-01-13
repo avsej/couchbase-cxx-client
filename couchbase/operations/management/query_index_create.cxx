@@ -27,6 +27,9 @@ namespace couchbase::operations::management
 std::error_code
 query_index_create_request::encode_to(encoded_request_type& encoded, http_context&) const
 {
+    if ((scope_name && !collection_name) || (!scope_name && collection_name) || (!is_primary && !index_name)) {
+        return error::common_errc::invalid_argument;
+    }
     encoded.headers["content-type"] = "application/json";
     tao::json::value with{};
     if (deferred) {
@@ -44,19 +47,19 @@ query_index_create_request::encode_to(encoded_request_type& encoded, http_contex
         with_clause = fmt::format("WITH {}", utils::json::generate(with));
     }
     std::string keyspace = fmt::format("{}:`{}`", namespace_id, bucket_name);
-    if (!scope_name.empty()) {
-        keyspace += ".`" + scope_name + "`";
+    if (scope_name) {
+        keyspace += ".`" + scope_name.value() + "`";
     }
-    if (!collection_name.empty()) {
-        keyspace += ".`" + collection_name + "`";
+    if (collection_name) {
+        keyspace += ".`" + collection_name.value() + "`";
     }
     tao::json::value body{ { "statement",
                              is_primary ? fmt::format(R"(CREATE PRIMARY INDEX {} ON {} USING GSI {})",
-                                                      index_name.empty() ? "" : fmt::format("`{}`", index_name),
+                                                      index_name ? fmt::format("`{}`", index_name.value()) : "",
                                                       keyspace,
                                                       with_clause)
                                         : fmt::format(R"(CREATE INDEX `{}` ON {}({}) {} USING GSI {})",
-                                                      index_name,
+                                                      index_name.value(),
                                                       keyspace,
                                                       utils::join_strings(fields, ", "),
                                                       where_clause,

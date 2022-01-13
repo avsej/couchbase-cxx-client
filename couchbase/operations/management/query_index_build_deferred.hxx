@@ -23,9 +23,7 @@
 #include <couchbase/platform/uuid.h>
 #include <couchbase/timeout_defaults.hxx>
 
-namespace couchbase::operations
-{
-namespace management
+namespace couchbase::operations::management
 {
 struct query_index_build_deferred_response {
     struct query_problem {
@@ -53,6 +51,5 @@ struct query_index_build_deferred_request {
 
     [[nodiscard]] query_index_build_deferred_response make_response(error_context::http&& ctx, const encoded_response_type& encoded) const;
 };
-} // namespace management
 
-} // namespace couchbase::operations
+} // namespace couchbase::operations::management

@@ -26,6 +26,9 @@ namespace couchbase::operations::management
 std::error_code
 query_index_get_all_request::encode_to(encoded_request_type& encoded, couchbase::http_context& /* context */) const
 {
+    if ((scope_name && !collection_name) || (!scope_name && collection_name)) {
+        return error::common_errc::invalid_argument;
+    }
     encoded.headers["content-type"] = "application/json";
     tao::json::value body{
         { "statement",
@@ -35,6 +38,13 @@ query_index_get_all_request::encode_to(encoded_request_type& encoded, couchbase:
             bucket_name) },
         { "client_context_id", client_context_id }
     };
+    if (scope_name && collection_name) {
+        body["statement"] = fmt::format(
+          R"(SELECT idx.* FROM system:indexes AS idx WHERE bucket_id= "{}" AND scope_id = "{}" AND keyspace_id = "{}" AND `using`="gsi" ORDER BY is_primary DESC, name ASC)",
+          bucket_name,
+          scope_name.value(),
+          collection_name.value());
+    }
     encoded.method = "POST";
     encoded.path = "/query/service";
     encoded.body = utils::json::generate(body);
