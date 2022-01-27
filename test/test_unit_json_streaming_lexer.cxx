@@ -77,6 +77,63 @@ null,1,false
     REQUIRE(result.rows[4] == R"(false)");
 }
 
+TEST_CASE("unit: json_streaming_lexer parse query result with no rows", "[unit]")
+{
+    test::utils::init_logger();
+
+    std::string chunk = R"(
+{
+	"requestID": "dc748b7a-c7e7-402d-a005-dd8572c7c3e0",
+	"clientContextID": "fa617197-f4fb-439f-33da-1f74c522ec88",
+	"errors": [{
+		"code": 21002,		"msg": "Request timed out and will be cancelled"	}
+	],
+	"status": "timeout",
+	"metrics": {
+		"elapsedTime": "2.852658ms",
+		"executionTime": "1.973543ms",
+		"resultCount": 0,
+		"resultSize": 0,
+		"processedObjects": 0,
+		"errorCount": 1
+	}
+}
+)";
+    couchbase::utils::json::streaming_lexer lexer("/results/^", 4);
+    query_result result{};
+    lexer.on_row([&result](std::string&& row) {
+        result.rows.emplace_back(std::move(row));
+        return couchbase::utils::json::stream_control::next_row;
+    });
+    lexer.on_complete([&result](std::error_code ec, std::size_t number_of_rows, std::string&& meta) {
+        result.ec = ec;
+        result.number_of_rows = number_of_rows;
+        result.meta = std::move(meta);
+    });
+    lexer.feed(chunk);
+    REQUIRE_FALSE(result.ec);
+    REQUIRE(result.number_of_rows == 0);
+    REQUIRE(result.rows.size() == 0);
+    REQUIRE(result.meta == R"(
+{
+	"requestID": "dc748b7a-c7e7-402d-a005-dd8572c7c3e0",
+	"clientContextID": "fa617197-f4fb-439f-33da-1f74c522ec88",
+	"errors": [{
+		"code": 21002,		"msg": "Request timed out and will be cancelled"	}
+	],
+	"status": "timeout",
+	"metrics": {
+		"elapsedTime": "2.852658ms",
+		"executionTime": "1.973543ms",
+		"resultCount": 0,
+		"resultSize": 0,
+		"processedObjects": 0,
+		"errorCount": 1
+	}
+}
+)");
+}
+
 TEST_CASE("unit: json_streaming_lexer parse query result", "[unit]")
 {
     test::utils::init_logger();
