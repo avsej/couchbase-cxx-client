@@ -17,7 +17,9 @@
 
 #include "test_helper.hxx"
 
+#include "core/config/impl/config_utils.hxx"
 #include "core/meta/version.hxx"
+#include "core/utils/binary.hxx"
 #include "core/utils/join_strings.hxx"
 #include "core/utils/json.hxx"
 #include "core/utils/movable_function.hxx"
@@ -25,6 +27,7 @@
 
 #include <couchbase/build_version.hxx>
 
+#include <couchbase/build_version.hxx>
 #include <couchbase/error_codes.hxx>
 
 #include <tao/json.hpp>
@@ -145,4 +148,31 @@ TEST_CASE("unit: utils::movable_function should be false after moving value out"
     REQUIRE(dst_handler(42));
     REQUIRE_FALSE(dst_handler(43));
     REQUIRE_FALSE(src_handler);
+}
+
+TEST_CASE("unit: replaces $HOST in binary vector", "[unit]")
+{
+    using couchbase::core::config::utils::replace_host_placeholder;
+    using couchbase::core::utils::to_binary;
+
+    SECTION("single occurrences")
+    {
+        auto data = to_binary("foo $HOST");
+        replace_host_placeholder(data, "127.0.0.1");
+        REQUIRE(data == to_binary("foo 127.0.0.1"));
+    }
+
+    SECTION("multiple occurrences")
+    {
+        auto data = to_binary("foo $HOST bar $HOST baz$HOST");
+        replace_host_placeholder(data, "127.0.0.1");
+        REQUIRE(data == to_binary("foo 127.0.0.1 bar 127.0.0.1 baz127.0.0.1"));
+    }
+
+    SECTION("no occurrences")
+    {
+        auto data = to_binary("foo bar baz");
+        replace_host_placeholder(data, "127.0.0.1");
+        REQUIRE(data == to_binary("foo bar baz"));
+    }
 }

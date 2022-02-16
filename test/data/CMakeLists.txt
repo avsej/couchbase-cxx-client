@@ -1,0 +1,3 @@
+embedded_file("bucket_config_with_external_addresses.json")
+embedded_file("bucket_config_with_external_addresses_without_ports.json")
+embedded_file("bucket_config_with_rev_epoch.json")

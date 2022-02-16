@@ -15,6 +15,7 @@ Checks: |-
   cppcoreguidelines-*,
   -abseil-*,
   -altera-*,
+  -bugprone-easily-swappable-parameters,
   -cppcoreguidelines-avoid-magic-numbers,
   -cppcoreguidelines-avoid-non-const-global-variables,
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,

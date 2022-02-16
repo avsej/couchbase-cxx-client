@@ -1,3 +1,4 @@
+add_subdirectory(data)
 add_subdirectory(utils)
 
 integration_test(connect)
@@ -24,6 +25,8 @@ unit_test(jsonsl)
 unit_test(config_profiles)
 unit_test(options)
 target_link_libraries(test_unit_jsonsl jsonsl)
+
+unit_test(configuration_management)
 
 integration_benchmark(get)
 

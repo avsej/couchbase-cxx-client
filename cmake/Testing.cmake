@@ -109,6 +109,46 @@ macro(integration_benchmark name)
   set_property(GLOBAL APPEND PROPERTY COUCHBASE_BENCHMARKS "benchmark_integration_${name}")
 endmacro()
 
+macro(embedded_file name)
+  file(
+    READ
+    ${name}
+    contents
+    HEX)
+  string(MAKE_C_IDENTIFIER ${name} id)
+  set(counter 0)
+  set(size 0)
+  set(data "")
+  string(
+    REGEX MATCHALL
+          "([A-Fa-f0-9][A-Fa-f0-9])"
+          SEPARATED_HEX
+          ${contents})
+  foreach(hex IN LISTS SEPARATED_HEX)
+    string(APPEND data "0x${hex},")
+    math(EXPR size "${size}+1")
+    math(EXPR counter "${counter}+1")
+    if(counter GREATER 16)
+      string(APPEND data "\n    ")
+      set(counter 0)
+    endif()
+  endforeach()
+  file(
+    GENERATE
+    OUTPUT ${PROJECT_BINARY_DIR}/generated/test/data/${id}.hxx
+    CONTENT
+      "#pragma once
+#include <array>
+
+constexpr std::array<char, ${size}> ${id} {
+    ${data}
+};
+
+static inline const std::string ${id}_string{ ${id}.data(), ${id}.size() };
+static inline const std::vector ${id}_vector{ ${id}.begin(), ${id}.end() };
+")
+endmacro()
+
 add_subdirectory(${PROJECT_SOURCE_DIR}/test)
 
 get_property(integration_targets GLOBAL PROPERTY COUCHBASE_INTEGRATION_TESTS)

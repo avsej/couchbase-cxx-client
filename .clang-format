@@ -15,4 +15,3 @@ AllowShortBlocksOnASingleLine: Never
 AllowShortCaseLabelsOnASingleLine: false
 BreakBeforeBraces: Linux
 FixNamespaceComments: true
-

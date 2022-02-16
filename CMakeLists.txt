@@ -83,6 +83,56 @@ add_subdirectory(core/metrics)
 set(couchbase_cxx_client_FILES
     core/cluster.cxx
     core/cluster_options.cxx
+    core/new_core/agent.cxx
+    core/new_core/auth_mechanism.cxx
+    core/new_core/best_effort_retry_strategy.cxx
+    core/new_core/cccp_config_controller.cxx
+    core/new_core/certificate_auth_provider.cxx
+    core/new_core/circuit_breaker_callback.cxx
+    core/new_core/config_management_component.cxx
+    core/new_core/diagnostics_component.cxx
+    core/new_core/endpoint_state.cxx
+    core/new_core/error_map_component.cxx
+    core/new_core/error_map_retry.cxx
+    core/new_core/errors.cxx
+    core/new_core/fail_fast_retry_strategy.cxx
+    core/new_core/http_component.cxx
+    core/new_core/impl/address_utils.cxx
+    core/new_core/impl/agent.cxx
+    core/new_core/impl/buffer_writer.cxx
+    core/new_core/impl/config_management_component.cxx
+    core/new_core/impl/config_utils.cxx
+    core/new_core/impl/diagnostics_component.cxx
+    core/new_core/impl/error_map.cxx
+    core/new_core/impl/error_map_component.cxx
+    core/new_core/impl/http_component.cxx
+    core/new_core/impl/mcbp_connection.cxx
+    core/new_core/ketama_continuum.cxx
+    core/new_core/lazy_circuit_breaker.cxx
+    core/new_core/mcbp/command_code.cxx
+    core/new_core/mcbp/command_magic.cxx
+    core/new_core/mcbp/packet.cxx
+    core/new_core/mcbp/server_duration.cxx
+    core/new_core/mcbp/status_code.cxx
+    core/new_core/mcbp_client.cxx
+    core/new_core/mcbp_client_dialer_component.cxx
+    core/new_core/mcbp_connection.cxx
+    core/new_core/mcbp_dispatcher.cxx
+    core/new_core/mcbp_multiplexer.cxx
+    core/new_core/mcbp_multiplexer_state.cxx
+    core/new_core/mcbp_operation_consumer.cxx
+    core/new_core/mcbp_operation_queue.cxx
+    core/new_core/mcbp_pipeline.cxx
+    core/new_core/mcbp_pipeline_client.cxx
+    core/new_core/mcbp_queue_request.cxx
+    core/new_core/mcbp_queue_request_builder.cxx
+    core/new_core/noop_circuit_breaker.cxx
+    core/new_core/password_auth_provider.cxx
+    core/new_core/pipeline_snapshot.cxx
+    core/new_core/retry_action.cxx
+    core/new_core/retry_reason.cxx
+    core/new_core/route_config.cxx
+    core/new_core/vbucket_map.cxx
     core/config_profile.cxx
     core/document_id.cxx
     core/error_context/key_value.cxx
