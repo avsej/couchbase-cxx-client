@@ -29,6 +29,7 @@ topology::configuration
 parse_config(std::string_view input, std::string_view endpoint_address, std::uint16_t endpoint_port)
 {
     auto config = utils::json::parse(input).as<topology::configuration>();
+    config.config_source_ = input;
     for (auto& node : config.nodes) {
         if (node.hostname == "$HOST") {
             node.hostname = endpoint_address;

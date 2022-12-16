@@ -112,7 +112,7 @@ main()
     std::vector<std::thread> io_pool{};
     io_pool.reserve(number_of_io_threads);
     for (std::size_t i = 0; i < number_of_io_threads; ++i) {
-        io_pool.emplace_back(std::thread([&io]() { io.run(); }));
+        io_pool.emplace_back([&io]() { io.run(); });
     }
 
     test::utils::open_cluster(cluster, origin);
@@ -245,6 +245,7 @@ main()
     const auto finish_time = std::chrono::system_clock::now();
     stats_timer.cancel();
 
+    fmt::print("\n");
     fmt::print("total operations: {}\n", total);
     fmt::print("total keys used: {}\n", known_keys.size());
     const auto total_time = finish_time - start_time;

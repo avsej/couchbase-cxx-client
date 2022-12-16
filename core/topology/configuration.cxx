@@ -202,6 +202,7 @@ configuration::index_for_this_node() const
             return n.index;
         }
     }
+    fmt::print("CONFIG SOURCE:\n{}", config_source_);
     throw std::runtime_error("no nodes marked as this_node");
 }
 
