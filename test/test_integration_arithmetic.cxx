@@ -20,14 +20,14 @@
 #include <couchbase/cluster.hxx>
 #include <couchbase/codec/raw_binary_transcoder.hxx>
 
-TEST_CASE("integration: increment", "[integration]")
+TEST_CASE("integration: increment")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
 
     couchbase::core::document_id id{ integration.ctx.bucket, "_default", "_default", test::utils::uniq_id("counter") };
 
-    SECTION("key exists")
+    SUBCASE("key exists")
     {
         {
             couchbase::core::operations::insert_request req{ id, couchbase::core::utils::to_binary("0") };
@@ -44,7 +44,7 @@ TEST_CASE("integration: increment", "[integration]")
         }
     }
 
-    SECTION("initial value")
+    SUBCASE("initial value")
     {
         couchbase::core::operations::increment_request req{ id };
         req.delta = 2;
@@ -55,7 +55,7 @@ TEST_CASE("integration: increment", "[integration]")
     }
 
     if (integration.cluster_version().supports_enhanced_durability()) {
-        SECTION("durability")
+        SUBCASE("durability")
         {
             couchbase::core::operations::increment_request req{ id };
             req.initial_value = 2;
@@ -67,7 +67,7 @@ TEST_CASE("integration: increment", "[integration]")
     }
 }
 
-TEST_CASE("integration: increment with public API", "[integration]")
+TEST_CASE("integration: increment with public API")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -79,7 +79,7 @@ TEST_CASE("integration: increment with public API", "[integration]")
 
     auto id = test::utils::uniq_id("counter");
 
-    SECTION("key exists")
+    SUBCASE("key exists")
     {
         {
             const auto ascii_zero = couchbase::core::utils::to_binary("0");
@@ -95,7 +95,7 @@ TEST_CASE("integration: increment with public API", "[integration]")
         }
     }
 
-    SECTION("initial value")
+    SUBCASE("initial value")
     {
         auto [ctx, resp] = collection.binary().increment(id, couchbase::increment_options{}.delta(2).initial(10)).get();
         REQUIRE_SUCCESS(ctx.ec());
@@ -103,7 +103,7 @@ TEST_CASE("integration: increment with public API", "[integration]")
     }
 
     if (integration.cluster_version().supports_enhanced_durability()) {
-        SECTION("durability")
+        SUBCASE("durability")
         {
             auto [ctx, resp] =
               collection.binary()
@@ -115,14 +115,14 @@ TEST_CASE("integration: increment with public API", "[integration]")
     }
 }
 
-TEST_CASE("integration: decrement", "[integration]")
+TEST_CASE("integration: decrement")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
 
     couchbase::core::document_id id{ integration.ctx.bucket, "_default", "_default", test::utils::uniq_id("counter") };
 
-    SECTION("key exists")
+    SUBCASE("key exists")
     {
         {
             couchbase::core::operations::insert_request req{ id, couchbase::core::utils::to_binary("20") };
@@ -139,7 +139,7 @@ TEST_CASE("integration: decrement", "[integration]")
         }
     }
 
-    SECTION("initial value")
+    SUBCASE("initial value")
     {
         couchbase::core::operations::decrement_request req{ id };
         req.delta = 2;
@@ -150,7 +150,7 @@ TEST_CASE("integration: decrement", "[integration]")
     }
 
     if (integration.cluster_version().supports_enhanced_durability()) {
-        SECTION("durability")
+        SUBCASE("durability")
         {
             couchbase::core::operations::decrement_request req{ id };
             req.initial_value = 2;
@@ -162,7 +162,7 @@ TEST_CASE("integration: decrement", "[integration]")
     }
 }
 
-TEST_CASE("integration: decrement with public API", "[integration]")
+TEST_CASE("integration: decrement with public API")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -174,7 +174,7 @@ TEST_CASE("integration: decrement with public API", "[integration]")
 
     auto id = test::utils::uniq_id("counter");
 
-    SECTION("key exists")
+    SUBCASE("key exists")
     {
         {
             const auto ascii_twenty = couchbase::core::utils::to_binary("20");
@@ -190,7 +190,7 @@ TEST_CASE("integration: decrement with public API", "[integration]")
         }
     }
 
-    SECTION("initial value")
+    SUBCASE("initial value")
     {
         auto [ctx, resp] = collection.binary().decrement(id, couchbase::decrement_options{}.delta(2).initial(10)).get();
         REQUIRE_SUCCESS(ctx.ec());
@@ -198,7 +198,7 @@ TEST_CASE("integration: decrement with public API", "[integration]")
     }
 
     if (integration.cluster_version().supports_enhanced_durability()) {
-        SECTION("durability")
+        SUBCASE("durability")
         {
             auto [ctx, resp] =
               collection.binary()

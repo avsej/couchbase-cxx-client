@@ -24,7 +24,7 @@
 
 static const std::string NODE{ "someipaddress" };
 
-TEST_CASE("transactions: defaults to KV mode", "[unit]")
+TEST_CASE("transactions: defaults to KV mode")
 {
     couchbase::core::transactions::waitable_op_list op_list;
     auto mode = op_list.get_mode();
@@ -32,7 +32,7 @@ TEST_CASE("transactions: defaults to KV mode", "[unit]")
     REQUIRE(mode.mode == couchbase::core::transactions::attempt_mode::modes::KV);
 }
 
-TEST_CASE("transactions: can set mode and node", "[unit]")
+TEST_CASE("transactions: can set mode and node")
 {
     couchbase::core::transactions::waitable_op_list op_list;
     std::atomic<bool> begin_work_called{ false };
@@ -52,7 +52,7 @@ TEST_CASE("transactions: can set mode and node", "[unit]")
     REQUIRE_FALSE(do_work_called.load());
 }
 
-TEST_CASE("transactions: set mode waits on in flight ops", "[unit]")
+TEST_CASE("transactions: set mode waits on in flight ops")
 {
     couchbase::core::transactions::waitable_op_list op_list;
     op_list.increment_ops();
@@ -74,7 +74,7 @@ TEST_CASE("transactions: set mode waits on in flight ops", "[unit]")
     REQUIRE_FALSE(do_work_called.load());
 }
 
-TEST_CASE("transactions: set mode calls appropriate callbacks", "[unit]")
+TEST_CASE("transactions: set mode calls appropriate callbacks")
 {
     int NUM_FUTURES{ 10 };
     couchbase::core::transactions::waitable_op_list op_list;
@@ -107,7 +107,7 @@ TEST_CASE("transactions: set mode calls appropriate callbacks", "[unit]")
     REQUIRE(begin_work_calls.load() == 1);
 }
 
-TEST_CASE("transactions: get mode waits", "[unit]")
+TEST_CASE("transactions: get mode waits")
 {
     couchbase::core::transactions::waitable_op_list op_list;
     std::atomic<bool> begin_work_called{ false };

@@ -94,7 +94,7 @@ upsert_scope_and_collection(std::shared_ptr<couchbase::core::cluster> cluster,
     }
 }
 
-TEST_CASE("transactions public blocking API: can get", "[transactions]")
+TEST_CASE("transactions public blocking API: can get")
 {
     test::utils::integration_test_guard integration;
 
@@ -118,7 +118,7 @@ TEST_CASE("transactions public blocking API: can get", "[transactions]")
     CHECK_FALSE(tx_err.ec());
 }
 
-TEST_CASE("transactions public blocking API: get returns error if doc doesn't exist", "[transactions]")
+TEST_CASE("transactions public blocking API: get returns error if doc doesn't exist")
 {
     test::utils::integration_test_guard integration;
 
@@ -137,7 +137,7 @@ TEST_CASE("transactions public blocking API: get returns error if doc doesn't ex
     CHECK_FALSE(tx_err.ec());
 }
 
-TEST_CASE("transactions public blocking API: can insert", "[transactions]")
+TEST_CASE("transactions public blocking API: can insert")
 {
     test::utils::integration_test_guard integration;
 
@@ -165,7 +165,7 @@ TEST_CASE("transactions public blocking API: can insert", "[transactions]")
     REQUIRE(final_doc.content_as<tao::json::value>() == content);
 }
 
-TEST_CASE("transactions public blocking API: insert has error as expected when doc already exists", "[transactions]")
+TEST_CASE("transactions public blocking API: insert has error as expected when doc already exists")
 {
 
     test::utils::integration_test_guard integration;
@@ -193,7 +193,7 @@ TEST_CASE("transactions public blocking API: insert has error as expected when d
     REQUIRE(final_doc.content_as<tao::json::value>() == content);
 }
 
-TEST_CASE("transactions public blocking API: can replace", "[transactions]")
+TEST_CASE("transactions public blocking API: can replace")
 {
     test::utils::integration_test_guard integration;
 
@@ -225,7 +225,7 @@ TEST_CASE("transactions public blocking API: can replace", "[transactions]")
             couchbase::core::utils::json::generate_binary(new_content));
 }
 
-TEST_CASE("transactions public blocking API: replace fails as expected with bad cas", "[transactions]")
+TEST_CASE("transactions public blocking API: replace fails as expected with bad cas")
 {
 
     test::utils::integration_test_guard integration;
@@ -255,7 +255,7 @@ TEST_CASE("transactions public blocking API: replace fails as expected with bad 
     REQUIRE(final_doc.content_as<tao::json::value>() == content);
 }
 
-TEST_CASE("transactions public blocking API: can remove", "[transactions]")
+TEST_CASE("transactions public blocking API: can remove")
 {
     test::utils::integration_test_guard integration;
 
@@ -280,7 +280,7 @@ TEST_CASE("transactions public blocking API: can remove", "[transactions]")
     REQUIRE(final_err.ec() == couchbase::errc::key_value::document_not_found);
 }
 
-TEST_CASE("transactions public blocking API: remove fails as expected with bad cas", "[transactions]")
+TEST_CASE("transactions public blocking API: remove fails as expected with bad cas")
 {
 
     test::utils::integration_test_guard integration;
@@ -307,7 +307,7 @@ TEST_CASE("transactions public blocking API: remove fails as expected with bad c
     CHECK(tx_err.ec());
 }
 
-TEST_CASE("transactions public blocking API: remove fails as expected with missing doc", "[transactions]")
+TEST_CASE("transactions public blocking API: remove fails as expected with missing doc")
 {
     test::utils::integration_test_guard integration;
 
@@ -331,7 +331,7 @@ TEST_CASE("transactions public blocking API: remove fails as expected with missi
     CHECK(tx_err.cause() == couchbase::errc::transaction_op::unknown);
 }
 
-TEST_CASE("transactions public blocking API: uncaught exception in lambda will rollback without retry", "[transactions]")
+TEST_CASE("transactions public blocking API: uncaught exception in lambda will rollback without retry")
 {
     test::utils::integration_test_guard integration;
 
@@ -352,7 +352,7 @@ TEST_CASE("transactions public blocking API: uncaught exception in lambda will r
     CHECK(tx_err.cause() == couchbase::errc::transaction_op::unknown);
 }
 
-TEST_CASE("transactions public blocking API: can pass per-transaction configs", "[transactions]")
+TEST_CASE("transactions public blocking API: can pass per-transaction configs")
 {
     test::utils::integration_test_guard integration;
 
@@ -386,7 +386,7 @@ TEST_CASE("transactions public blocking API: can pass per-transaction configs", 
     CHECK(tx_err.ec());
 }
 
-TEST_CASE("transactions public blocking API: can do simple query", "[transactions]")
+TEST_CASE("transactions public blocking API: can do simple query")
 {
     test::utils::integration_test_guard integration;
 
@@ -407,7 +407,7 @@ TEST_CASE("transactions public blocking API: can do simple query", "[transaction
     CHECK_FALSE(result.transaction_id.empty());
 }
 
-TEST_CASE("transactions public blocking API: can do simple mutating query", "[transactions]")
+TEST_CASE("transactions public blocking API: can do simple mutating query")
 {
     test::utils::integration_test_guard integration;
 
@@ -430,7 +430,7 @@ TEST_CASE("transactions public blocking API: can do simple mutating query", "[tr
     CHECK(final_doc.content_as<tao::json::value>().at("some_number") == 10);
 }
 
-TEST_CASE("transactions public blocking API: some query errors don't force rollback", "[transactions]")
+TEST_CASE("transactions public blocking API: some query errors don't force rollback")
 {
     test::utils::integration_test_guard integration;
 
@@ -455,7 +455,7 @@ TEST_CASE("transactions public blocking API: some query errors don't force rollb
     CHECK(final_doc.content_as<tao::json::value>() == content);
 }
 
-TEST_CASE("transactions public blocking API: some query errors do rollback", "[transactions]")
+TEST_CASE("transactions public blocking API: some query errors do rollback")
 {
     test::utils::integration_test_guard integration;
 
@@ -484,7 +484,7 @@ TEST_CASE("transactions public blocking API: some query errors do rollback", "[t
     CHECK(doc2.cas().empty());
 }
 
-TEST_CASE("transactions public blocking API: some query errors are seen immediately", "[transactions]")
+TEST_CASE("transactions public blocking API: some query errors are seen immediately")
 {
     test::utils::integration_test_guard integration;
 
@@ -503,7 +503,7 @@ TEST_CASE("transactions public blocking API: some query errors are seen immediat
     CHECK(result.unstaging_complete);
 }
 
-TEST_CASE("transactions public blocking API: can query from a scope", "[transactions]")
+TEST_CASE("transactions public blocking API: can query from a scope")
 {
     const std::string new_scope_name("newscope");
     const std::string new_coll_name("newcoll");
@@ -537,7 +537,7 @@ TEST_CASE("transactions public blocking API: can query from a scope", "[transact
     }
 }
 
-TEST_CASE("transactions public blocking API: can get doc from bucket not yet opened", "[transactions]")
+TEST_CASE("transactions public blocking API: can get doc from bucket not yet opened")
 {
 
     auto id = test::utils::uniq_id("txn");
@@ -565,7 +565,7 @@ TEST_CASE("transactions public blocking API: can get doc from bucket not yet ope
     });
 }
 
-TEST_CASE("transactions public blocking API: can insert doc into bucket not yet opened", "[transactions]")
+TEST_CASE("transactions public blocking API: can insert doc into bucket not yet opened")
 {
     test::utils::integration_test_guard integration;
 
@@ -591,7 +591,7 @@ TEST_CASE("transactions public blocking API: can insert doc into bucket not yet 
     });
 }
 
-TEST_CASE("transactions public blocking API: can replace doc in bucket not yet opened", "[transactions]")
+TEST_CASE("transactions public blocking API: can replace doc in bucket not yet opened")
 {
 
     auto id = test::utils::uniq_id("txn");
@@ -626,9 +626,8 @@ TEST_CASE("transactions public blocking API: can replace doc in bucket not yet o
     });
 }
 
-TEST_CASE("transactions public blocking API: can remove doc in bucket not yet opened", "[transactions]")
+TEST_CASE("transactions public blocking API: can remove doc in bucket not yet opened")
 {
-
     auto id = test::utils::uniq_id("txn");
     {
         test::utils::integration_test_guard integration;

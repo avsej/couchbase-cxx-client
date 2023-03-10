@@ -91,7 +91,7 @@ create_logger(std::shared_ptr<TrivialFileSink> sink, couchbase::core::logger::le
     couchbase::core::logger::create_file_logger(conf);
 }
 
-TEST_CASE("transactions: can use custom sink", "[unit]")
+TEST_CASE("transactions: can use custom sink")
 {
     std::string log_message = "I am a log";
     auto sink = std::make_shared<TrivialFileSink>();
@@ -103,7 +103,7 @@ TEST_CASE("transactions: can use custom sink", "[unit]")
     REQUIRE(sink_output_contains(sink, log_message));
 }
 
-TEST_CASE("transactions: custom sink respects log levels", "[unit]")
+TEST_CASE("transactions: custom sink respects log levels")
 {
     std::string log_message = "I am a log";
     std::string log_message2 = "I am also a log";
@@ -118,7 +118,7 @@ TEST_CASE("transactions: custom sink respects log levels", "[unit]")
     REQUIRE(sink_output_contains(sink, log_message2));
 }
 
-TEST_CASE("transactions: custom sink respects log level changes", "[unit]")
+TEST_CASE("transactions: custom sink respects log level changes")
 {
     std::string log_message = "I am a log";
     auto sink = std::make_shared<TrivialFileSink>();

@@ -17,10 +17,6 @@
 
 #include "test_helper.hxx"
 
-#include <catch2/matchers/catch_matchers.hpp>
-#include <catch2/matchers/catch_matchers_exception.hpp>
-#include <catch2/matchers/catch_matchers_string.hpp>
-
 #include "core/meta/version.hxx"
 #include "core/platform/base64.h"
 #include "core/utils/join_strings.hxx"
@@ -34,13 +30,13 @@
 
 #include <tao/json.hpp>
 
-TEST_CASE("unit: transformer to deduplicate JSON keys", "[unit]")
+TEST_CASE("unit: transformer to deduplicate JSON keys")
 {
-    using Catch::Matchers::ContainsSubstring;
+    using doctest::Contains;
 
     std::string input{ R"({"answer":"wrong","answer":42})" };
 
-    CHECK_THROWS_WITH(tao::json::from_string(input), ContainsSubstring("duplicate JSON object key \"answer\""));
+    CHECK_THROWS_WITH(tao::json::from_string(input), "duplicate JSON object key \"answer\"");
 
     auto result = couchbase::core::utils::json::parse(input);
     INFO(couchbase::core::utils::json::generate(result));
@@ -50,7 +46,7 @@ TEST_CASE("unit: transformer to deduplicate JSON keys", "[unit]")
     CHECK(result["answer"].as<std::int64_t>() == 42);
 }
 
-TEST_CASE("unit: string representation of the error codes", "[unit]")
+TEST_CASE("unit: string representation of the error codes")
 {
     std::error_code rc = couchbase::errc::common::authentication_failure;
     CHECK(rc.category().name() == std::string("couchbase.common"));
@@ -60,12 +56,12 @@ TEST_CASE("unit: string representation of the error codes", "[unit]")
     CHECK(ss.str() == "couchbase.common:6");
 }
 
-TEST_CASE("unit: url path escape", "[unit]")
+TEST_CASE("unit: url path escape")
 {
     REQUIRE(couchbase::core::utils::string_codec::v2::path_escape("a/b") == "a%2Fb");
 }
 
-TEST_CASE("unit: join strings", "[unit]")
+TEST_CASE("unit: join strings")
 {
     std::vector<std::string> field_specs{ "testkey:string" };
 
@@ -76,7 +72,7 @@ TEST_CASE("unit: join strings", "[unit]")
     REQUIRE(couchbase::core::utils::join_strings(field_specs, ",") == "testkey:string,volume:double,id:integer");
 }
 
-TEST_CASE("unit: join strings (fmt version)", "[unit]")
+TEST_CASE("unit: join strings (fmt version)")
 {
     std::vector<std::string> field_specs{ "testkey:string" };
 
@@ -87,7 +83,7 @@ TEST_CASE("unit: join strings (fmt version)", "[unit]")
     REQUIRE(couchbase::core::utils::join_strings_fmt("{}", field_specs, ",") == "testkey:string,volume:double,id:integer");
 }
 
-TEST_CASE("unit: user_agent string", "[unit]")
+TEST_CASE("unit: user_agent string")
 {
     std::string os_version = fmt::format(";{}/{}", COUCHBASE_CXX_CLIENT_SYSTEM_NAME, COUCHBASE_CXX_CLIENT_SYSTEM_PROCESSOR);
     std::string core_version = fmt::format("cxx/{}.{}.{}/{};{}/{}",
@@ -140,7 +136,7 @@ TEST_CASE("unit: user_agent string", "[unit]")
             couchbase::core::meta::user_agent_for_http("0xDEADBEEF", "0xCAFEBEBE", "hello\nworld"));
 }
 
-TEST_CASE("unit: utils::movable_function should be false after moving value out", "[unit]")
+TEST_CASE("unit: utils::movable_function should be false after moving value out")
 {
     auto ptr = std::make_unique<int>(42);
     couchbase::core::utils::movable_function<bool(int)> src_handler = [ptr = std::move(ptr)](int val) {
@@ -157,7 +153,7 @@ TEST_CASE("unit: utils::movable_function should be false after moving value out"
     REQUIRE_FALSE(src_handler);
 }
 
-TEST_CASE("unit: base64", "[unit]")
+TEST_CASE("unit: base64")
 {
     REQUIRE(couchbase::core::base64::encode(std::vector{ std::byte{ 255 } }, false) == "/w==");
     REQUIRE(couchbase::core::base64::encode(std::vector{ std::byte{ 255 } }, true) == "/w==\n");
@@ -220,9 +216,9 @@ namespace couchbase::core::meta
 {
 std::string
 parse_git_describe_output(const std::string& git_describe_output);
-}
+} // namespace couchbase::core::meta
 
-TEST_CASE("unit: semantic version string", "[unit]")
+TEST_CASE("unit: semantic version string")
 {
     REQUIRE(couchbase::core::meta::parse_git_describe_output("1.0.0-beta.4-16-gfbc9922") == "1.0.0-beta.4+16.fbc9922");
     REQUIRE(couchbase::core::meta::parse_git_describe_output("1.0.0-16-gfbc9922") == "1.0.0+16.fbc9922");
@@ -239,7 +235,7 @@ TEST_CASE("unit: semantic version string", "[unit]")
 
 #include "core/platform/uuid.h"
 
-TEST_CASE("unit: uuid collision", "[unit]")
+TEST_CASE("unit: uuid collision")
 {
     std::array<std::set<std::string>, 10> uuids{};
     std::vector<std::thread> threads{};

@@ -176,7 +176,7 @@ main(int argc, const char* argv[])
 //! [blocking-txn]
 } // namespace blocking_txn
 
-TEST_CASE("example: basic transaction", "[integration]")
+TEST_CASE("example: basic transaction")
 {
     test::utils::integration_test_guard integration;
     if (!integration.cluster_version().supports_collections()) {

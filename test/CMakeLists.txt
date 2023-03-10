@@ -30,8 +30,6 @@ unit_test(search)
 unit_test(query)
 target_link_libraries(test_unit_jsonsl jsonsl)
 
-integration_benchmark(get)
-
 transaction_test(context)
 transaction_test(simple)
 transaction_test(simple_async)

@@ -21,13 +21,21 @@
 #include "utils/test_context.hxx"
 #include "utils/test_data.hxx"
 
-#include <catch2/catch_test_macros.hpp>
+#define DOCTEST_CONFIG_SUPER_FAST_ASSERTS
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#define DOCTEST_CONFIG_VOID_CAST_EXPRESSIONS
+#include <doctest/doctest.h>
+
+#define SAFE_INFO(ec_name, ec)                                                                                                             \
+    auto ec_name = ec;                                                                                                                     \
+    INFO(ec_name);
 
 #define REQUIRE_SUCCESS(ec)                                                                                                                \
-    INFO((ec).message());                                                                                                                  \
+    SAFE_INFO(DOCTEST_ANONYMOUS(ERROR_CODE_), (ec).message());                                                                             \
     REQUIRE_FALSE(ec)
+
 #define EXPECT_SUCCESS(result)                                                                                                             \
     if (!result) {                                                                                                                         \
-        INFO(result.error().message());                                                                                                    \
+        SAFE_INFO(DOCTEST_ANONYMOUS(ERROR_CODE_), result.error().message());                                                               \
     }                                                                                                                                      \
     REQUIRE(result)

@@ -134,7 +134,7 @@ get_vbucket_map(test::utils::integration_test_guard& integration)
     return vbucket_map.value();
 }
 
-TEST_CASE("integration: range scan large values", "[integration]")
+TEST_CASE("integration: range scan large values")
 {
     test::utils::integration_test_guard integration;
 
@@ -190,7 +190,7 @@ TEST_CASE("integration: range scan large values", "[integration]")
     }
 }
 
-TEST_CASE("integration: range scan small values", "[integration]")
+TEST_CASE("integration: range scan small values")
 {
     test::utils::integration_test_guard integration;
 
@@ -288,7 +288,7 @@ class collection_guard
     std::string collection_name_{ test::utils::uniq_id("collection") };
 };
 
-TEST_CASE("integration: range scan collection retry", "[integration]")
+TEST_CASE("integration: range scan collection retry")
 {
     test::utils::integration_test_guard integration;
 
@@ -354,7 +354,7 @@ TEST_CASE("integration: range scan collection retry", "[integration]")
     }
 }
 
-TEST_CASE("integration: range scan only keys", "[integration]")
+TEST_CASE("integration: range scan only keys")
 {
     test::utils::integration_test_guard integration;
 
@@ -413,7 +413,7 @@ TEST_CASE("integration: range scan only keys", "[integration]")
     }
 }
 
-TEST_CASE("integration: range scan cancellation before continue", "[integration]")
+TEST_CASE("integration: range scan cancellation before continue")
 {
     test::utils::integration_test_guard integration;
 
@@ -516,7 +516,7 @@ TEST_CASE("integration: range scan cancellation before continue", "[integration]
     REQUIRE_FALSE(items_callback_invoked);
 }
 
-TEST_CASE("integration: range scan cancel during streaming using protocol cancel", "[integration]")
+TEST_CASE("integration: range scan cancel during streaming using protocol cancel")
 {
     test::utils::integration_test_guard integration;
 
@@ -627,7 +627,7 @@ TEST_CASE("integration: range scan cancel during streaming using protocol cancel
     REQUIRE(data.size() == 3);
 }
 
-TEST_CASE("integration: range scan cancel during streaming using pending_operation cancel", "[integration]")
+TEST_CASE("integration: range scan cancel during streaming using pending_operation cancel")
 {
     test::utils::integration_test_guard integration;
 
@@ -728,7 +728,7 @@ TEST_CASE("integration: range scan cancel during streaming using pending_operati
     REQUIRE(data.size() >= 1);
 }
 
-TEST_CASE("integration: sampling scan keys only", "[integration]")
+TEST_CASE("integration: sampling scan keys only")
 {
     test::utils::integration_test_guard integration;
 
@@ -799,7 +799,7 @@ mutations_to_mutation_state(std::map<std::string, couchbase::mutation_token> mut
     return state;
 }
 
-TEST_CASE("integration: manager scan range without content", "[integration]")
+TEST_CASE("integration: manager scan range without content")
 {
     test::utils::integration_test_guard integration;
 
@@ -856,7 +856,7 @@ TEST_CASE("integration: manager scan range without content", "[integration]")
     }
 }
 
-TEST_CASE("integration: manager scan range with content", "[integration]")
+TEST_CASE("integration: manager scan range with content")
 {
     test::utils::integration_test_guard integration;
 
@@ -913,7 +913,7 @@ TEST_CASE("integration: manager scan range with content", "[integration]")
     }
 }
 
-TEST_CASE("integration: manager sampling scan with custom collection", "[integration]")
+TEST_CASE("integration: manager sampling scan with custom collection")
 {
     test::utils::integration_test_guard integration;
 
@@ -973,7 +973,7 @@ TEST_CASE("integration: manager sampling scan with custom collection", "[integra
     }
 }
 
-TEST_CASE("integration: manager prefix scan without content", "[integration]")
+TEST_CASE("integration: manager prefix scan without content")
 {
     test::utils::integration_test_guard integration;
 
@@ -1027,7 +1027,7 @@ TEST_CASE("integration: manager prefix scan without content", "[integration]")
     }
 }
 
-TEST_CASE("integration: manager sampling scan with custom collection and up to 10 concurrent streams", "[integration]")
+TEST_CASE("integration: manager sampling scan with custom collection and up to 10 concurrent streams")
 {
     test::utils::integration_test_guard integration;
 
@@ -1151,7 +1151,7 @@ TEST_CASE("integration: manager sampling scan with custom collection and up to 1
     }
 }
 
-TEST_CASE("integration: manager prefix scan without content and up to 5 concurrent streams", "[integration]")
+TEST_CASE("integration: manager prefix scan without content and up to 5 concurrent streams")
 {
     test::utils::integration_test_guard integration;
 
@@ -1206,7 +1206,7 @@ TEST_CASE("integration: manager prefix scan without content and up to 5 concurre
     }
 }
 
-TEST_CASE("integration: manager prefix scan, get 10 items and cancel", "[integration]")
+TEST_CASE("integration: manager prefix scan, get 10 items and cancel")
 {
     test::utils::integration_test_guard integration;
 
@@ -1268,7 +1268,7 @@ TEST_CASE("integration: manager prefix scan, get 10 items and cancel", "[integra
     REQUIRE(result->is_cancelled());
 }
 
-TEST_CASE("integration: manager prefix scan with concurrency 0 (invalid argument)", "[integration]")
+TEST_CASE("integration: manager prefix scan with concurrency 0 (invalid argument)")
 {
     test::utils::integration_test_guard integration;
 

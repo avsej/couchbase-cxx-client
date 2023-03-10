@@ -189,7 +189,7 @@ jsonsl_feed(jsonsl_t lexer, std::string_view bytes)
     return jsonsl_feed(lexer, bytes.data(), bytes.size());
 }
 
-TEST_CASE("unit: jsonsl parse whole document", "[unit]")
+TEST_CASE("unit: jsonsl parse whole document")
 {
     jsonsl_t lexer = jsonsl_new(512);
     REQUIRE(lexer != nullptr);
@@ -239,7 +239,7 @@ TEST_CASE("unit: jsonsl parse whole document", "[unit]")
     REQUIRE(state.events[18] == parser_event{ parser_event_type::finish_object });
 }
 
-TEST_CASE("unit: jsonsl parse with JSON pointer", "[unit]")
+TEST_CASE("unit: jsonsl parse with JSON pointer")
 {
     jsonsl_error_t error;
 
@@ -394,7 +394,7 @@ shallow_action_callback(jsonsl_t lexer, jsonsl_action_t action, struct jsonsl_st
     }
 }
 
-TEST_CASE("unit: jsonsl parse with limited depth and JSON pointer", "[unit]")
+TEST_CASE("unit: jsonsl parse with limited depth and JSON pointer")
 {
     jsonsl_error_t error;
 

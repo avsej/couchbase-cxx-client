@@ -153,7 +153,7 @@ assert_http_op_span_ok(std::shared_ptr<test_span> span, const std::string& op, s
     // spec has some specific fields for query, analytics, etc...
 }
 
-TEST_CASE("integration: enable external tracer", "[integration]")
+TEST_CASE("integration: enable external tracer")
 {
     couchbase::core::cluster_options opts{};
     auto tracer = std::make_shared<test_tracer>();
@@ -163,15 +163,15 @@ TEST_CASE("integration: enable external tracer", "[integration]")
     auto parent_span = GENERATE(std::shared_ptr<test_span>{ nullptr }, std::make_shared<test_span>("parent"));
     auto value = couchbase::core::utils::to_binary(R"({"some":"thing"})");
     auto existing_id = make_id(guard.ctx);
-    SECTION("upsert doc 'foo'")
+    SUBCASE("upsert doc 'foo'")
     {
         couchbase::core::operations::upsert_request r{ existing_id, value };
         auto response = test::utils::execute(guard.cluster, r);
         REQUIRE_FALSE(response.ctx.ec());
 
-        SECTION("test some KV ops:")
+        SUBCASE("test some KV ops:")
         {
-            SECTION("upsert")
+            SUBCASE("upsert")
             {
                 tracer->reset();
                 couchbase::core::operations::upsert_request req{ make_id(guard.ctx), value };
@@ -182,7 +182,7 @@ TEST_CASE("integration: enable external tracer", "[integration]")
                 REQUIRE_FALSE(spans.empty());
                 assert_kv_op_span_ok(guard, spans.front(), "cb.upsert", parent_span);
             }
-            SECTION("insert")
+            SUBCASE("insert")
             {
                 tracer->reset();
                 couchbase::core::operations::insert_request req{ make_id(guard.ctx), value };
@@ -194,7 +194,7 @@ TEST_CASE("integration: enable external tracer", "[integration]")
                 assert_kv_op_span_ok(guard, spans.front(), "cb.insert", parent_span);
             }
 
-            SECTION("get")
+            SUBCASE("get")
             {
                 tracer->reset();
                 couchbase::core::operations::get_request req{ existing_id };
@@ -205,7 +205,7 @@ TEST_CASE("integration: enable external tracer", "[integration]")
                 REQUIRE_FALSE(spans.empty());
                 assert_kv_op_span_ok(guard, spans.front(), "cb.get", parent_span);
             }
-            SECTION("replace")
+            SUBCASE("replace")
             {
                 tracer->reset();
                 auto new_value = couchbase::core::utils::to_binary(R"({"some": "thing else")");
@@ -217,7 +217,7 @@ TEST_CASE("integration: enable external tracer", "[integration]")
                 REQUIRE_FALSE(spans.empty());
                 assert_kv_op_span_ok(guard, spans.front(), "cb.replace", parent_span);
             }
-            SECTION("lookup_in")
+            SUBCASE("lookup_in")
             {
                 tracer->reset();
                 couchbase::core::operations::lookup_in_request req{};
@@ -230,7 +230,7 @@ TEST_CASE("integration: enable external tracer", "[integration]")
                 REQUIRE_FALSE(spans.empty());
                 assert_kv_op_span_ok(guard, spans.front(), "cb.lookup_in", parent_span);
             }
-            SECTION("mutate_in")
+            SUBCASE("mutate_in")
             {
                 tracer->reset();
                 couchbase::core::operations::mutate_in_request req{};
@@ -245,9 +245,9 @@ TEST_CASE("integration: enable external tracer", "[integration]")
             }
         }
     }
-    SECTION("test http ops:")
+    SUBCASE("test http ops:")
     {
-        SECTION("query")
+        SUBCASE("query")
         {
             if (!guard.cluster_version().supports_query()) {
                 SKIP("cluster does not support query");
@@ -261,7 +261,7 @@ TEST_CASE("integration: enable external tracer", "[integration]")
             REQUIRE_FALSE(spans.empty());
             assert_http_op_span_ok(spans.front(), "query", parent_span);
         }
-        SECTION("search")
+        SUBCASE("search")
         {
             tracer->reset();
             couchbase::core::operations::search_request req{};
@@ -276,7 +276,7 @@ TEST_CASE("integration: enable external tracer", "[integration]")
             assert_http_op_span_ok(spans.front(), "search", parent_span);
         }
         if (guard.cluster_version().supports_analytics()) {
-            SECTION("analytics")
+            SUBCASE("analytics")
             {
                 tracer->reset();
                 couchbase::core::operations::analytics_request req{};
@@ -291,7 +291,7 @@ TEST_CASE("integration: enable external tracer", "[integration]")
             }
         }
         if (guard.cluster_version().supports_views()) {
-            SECTION("view")
+            SUBCASE("view")
             {
                 tracer->reset();
                 couchbase::core::operations::document_view_request req{};

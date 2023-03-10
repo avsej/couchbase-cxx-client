@@ -30,7 +30,7 @@
 
 using Catch::Matchers::ContainsSubstring;
 
-TEST_CASE("integration: upsert/get with json transcoder", "[integration]")
+TEST_CASE("integration: upsert/get with json transcoder")
 {
     test::utils::integration_test_guard integration;
 
@@ -58,7 +58,7 @@ TEST_CASE("integration: upsert/get with json transcoder", "[integration]")
     }
 }
 
-TEST_CASE("integration: insert/get with json transcoder", "[integration]")
+TEST_CASE("integration: insert/get with json transcoder")
 {
     test::utils::integration_test_guard integration;
 
@@ -86,7 +86,7 @@ TEST_CASE("integration: insert/get with json transcoder", "[integration]")
     }
 }
 
-TEST_CASE("integration: insert/replace with json transcoder", "[integration]")
+TEST_CASE("integration: insert/replace with json transcoder")
 {
     test::utils::integration_test_guard integration;
 
@@ -141,7 +141,7 @@ TEST_CASE("integration: insert/replace with json transcoder", "[integration]")
     }
 }
 
-TEST_CASE("integration: upsert/remove with json transcoder", "[integration]")
+TEST_CASE("integration: upsert/remove with json transcoder")
 {
     test::utils::integration_test_guard integration;
 
@@ -177,7 +177,7 @@ TEST_CASE("integration: upsert/remove with json transcoder", "[integration]")
     }
 }
 
-TEST_CASE("integration: upsert/append/prepend with raw binary transcoder", "[integration]")
+TEST_CASE("integration: upsert/append/prepend with raw binary transcoder")
 {
     test::utils::integration_test_guard integration;
 
@@ -235,7 +235,7 @@ TEST_CASE("integration: upsert/append/prepend with raw binary transcoder", "[int
     }
 }
 
-TEST_CASE("integration: get with expiry and json transcoder", "[integration]")
+TEST_CASE("integration: get with expiry and json transcoder")
 {
     test::utils::integration_test_guard integration;
 
@@ -266,7 +266,7 @@ TEST_CASE("integration: get with expiry and json transcoder", "[integration]")
     }
 }
 
-TEST_CASE("integration: get with projections and json transcoder", "[integration]")
+TEST_CASE("integration: get with projections and json transcoder")
 {
     test::utils::integration_test_guard integration;
 
@@ -286,7 +286,7 @@ TEST_CASE("integration: get with projections and json transcoder", "[integration
         REQUIRE(resp.mutation_token().has_value());
     }
 
-    SECTION("all fields present")
+    SUBCASE("all fields present")
     {
         auto [ctx, resp] = collection.get(id, couchbase::get_options{}.project({ "username", "full_name" })).get();
         REQUIRE_SUCCESS(ctx.ec());
@@ -299,7 +299,7 @@ TEST_CASE("integration: get with projections and json transcoder", "[integration
         REQUIRE(light_albert.birth_year == 0);
     }
 
-    SECTION("with non-existent field in projections")
+    SUBCASE("with non-existent field in projections")
     {
         auto [ctx, resp] = collection.get(id, couchbase::get_options{}.project({ "username", "full_name", "non_existent_field" })).get();
         REQUIRE_SUCCESS(ctx.ec());
@@ -313,7 +313,7 @@ TEST_CASE("integration: get with projections and json transcoder", "[integration
     }
 }
 
-TEST_CASE("integration: get_and_touch and json transcoder", "[integration]")
+TEST_CASE("integration: get_and_touch and json transcoder")
 {
     test::utils::integration_test_guard integration;
 
@@ -371,7 +371,7 @@ TEST_CASE("integration: get_and_touch and json transcoder", "[integration]")
     }
 }
 
-TEST_CASE("integration: touch with public API", "[integration]")
+TEST_CASE("integration: touch with public API")
 {
     test::utils::integration_test_guard integration;
 
@@ -427,7 +427,7 @@ TEST_CASE("integration: touch with public API", "[integration]")
     }
 }
 
-TEST_CASE("integration: subdoc with public API", "[integration]")
+TEST_CASE("integration: subdoc with public API")
 {
     test::utils::integration_test_guard integration;
 

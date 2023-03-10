@@ -354,7 +354,7 @@ TEST_CASE("integration: search query")
     }
 }
 
-TEST_CASE("integration: search query consistency", "[integration]")
+TEST_CASE("integration: search query consistency")
 {
     test::utils::integration_test_guard integration;
 

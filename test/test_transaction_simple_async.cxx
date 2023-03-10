@@ -52,7 +52,7 @@ txn_completed(std::optional<transaction_exception> err,
     }
 }
 
-TEST_CASE("transactions: async get", "[transactions]")
+TEST_CASE("transactions: async get")
 {
     test::utils::integration_test_guard integration;
 
@@ -86,7 +86,7 @@ TEST_CASE("transactions: async get", "[transactions]")
     f.get();
 }
 
-TEST_CASE("transactions: can't get from unopened bucket", "[transactions]")
+TEST_CASE("transactions: can't get from unopened bucket")
 {
     test::utils::integration_test_guard integration;
 
@@ -111,7 +111,7 @@ TEST_CASE("transactions: can't get from unopened bucket", "[transactions]")
     REQUIRE(cb_called->load());
 }
 
-TEST_CASE("transactions: async get fail", "[transactions]")
+TEST_CASE("transactions: async get fail")
 {
     test::utils::integration_test_guard integration;
 
@@ -146,7 +146,7 @@ TEST_CASE("transactions: async get fail", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: async remove fail", "[transactions]")
+TEST_CASE("transactions: async remove fail")
 {
 
     test::utils::integration_test_guard integration;
@@ -190,7 +190,7 @@ TEST_CASE("transactions: async remove fail", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: RYOW on insert", "[transactions]")
+TEST_CASE("transactions: RYOW on insert")
 {
     test::utils::integration_test_guard integration;
 
@@ -224,7 +224,7 @@ TEST_CASE("transactions: RYOW on insert", "[transactions]")
     REQUIRE(cb_called->load());
 }
 
-TEST_CASE("transactions: async remove", "[transactions]")
+TEST_CASE("transactions: async remove")
 {
     test::utils::integration_test_guard integration;
 
@@ -264,7 +264,7 @@ TEST_CASE("transactions: async remove", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: async replace", "[transactions]")
+TEST_CASE("transactions: async replace")
 {
     test::utils::integration_test_guard integration;
 
@@ -313,7 +313,7 @@ TEST_CASE("transactions: async replace", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: async replace fail", "[transactions]")
+TEST_CASE("transactions: async replace fail")
 {
     test::utils::integration_test_guard integration;
 
@@ -364,7 +364,7 @@ TEST_CASE("transactions: async replace fail", "[transactions]")
     };
 }
 
-TEST_CASE("transactions: async insert", "[transactions]")
+TEST_CASE("transactions: async insert")
 {
     test::utils::integration_test_guard integration;
 
@@ -399,7 +399,7 @@ TEST_CASE("transactions: async insert", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: async insert can be rolled back", "[transactions]")
+TEST_CASE("transactions: async insert can be rolled back")
 {
     test::utils::integration_test_guard integration;
 
@@ -437,7 +437,7 @@ TEST_CASE("transactions: async insert can be rolled back", "[transactions]")
         }
     }
 }
-TEST_CASE("transactions: async query", "[transactions]")
+TEST_CASE("transactions: async query")
 {
     test::utils::integration_test_guard integration;
 
@@ -478,7 +478,7 @@ TEST_CASE("transactions: async query", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: multiple racing queries", "[transactions]")
+TEST_CASE("transactions: multiple racing queries")
 {
     test::utils::integration_test_guard integration;
 
@@ -530,7 +530,7 @@ TEST_CASE("transactions: multiple racing queries", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: rollback async query", "[transactions]")
+TEST_CASE("transactions: rollback async query")
 {
     test::utils::integration_test_guard integration;
 
@@ -574,7 +574,7 @@ TEST_CASE("transactions: rollback async query", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: async KV get", "[transactions]")
+TEST_CASE("transactions: async KV get")
 {
 
     test::utils::integration_test_guard integration;
@@ -622,7 +622,7 @@ TEST_CASE("transactions: async KV get", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: rollback async KV get", "[transactions]")
+TEST_CASE("transactions: rollback async KV get")
 {
     test::utils::integration_test_guard integration;
 
@@ -669,7 +669,7 @@ TEST_CASE("transactions: rollback async KV get", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: async KV insert", "[transactions]")
+TEST_CASE("transactions: async KV insert")
 {
     test::utils::integration_test_guard integration;
 
@@ -706,7 +706,7 @@ TEST_CASE("transactions: async KV insert", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: rollback async KV insert", "[transactions]")
+TEST_CASE("transactions: rollback async KV insert")
 {
     test::utils::integration_test_guard integration;
 
@@ -744,7 +744,7 @@ TEST_CASE("transactions: rollback async KV insert", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: async KV replace", "[transactions]")
+TEST_CASE("transactions: async KV replace")
 {
     test::utils::integration_test_guard integration;
 
@@ -802,7 +802,7 @@ TEST_CASE("transactions: async KV replace", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: rollback async KV replace", "[transactions]")
+TEST_CASE("transactions: rollback async KV replace")
 {
     test::utils::integration_test_guard integration;
 
@@ -860,7 +860,7 @@ TEST_CASE("transactions: rollback async KV replace", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: async KV remove", "[transactions]")
+TEST_CASE("transactions: async KV remove")
 {
 
     test::utils::integration_test_guard integration;
@@ -914,7 +914,7 @@ TEST_CASE("transactions: async KV remove", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: rollback async KV remove", "[transactions]")
+TEST_CASE("transactions: rollback async KV remove")
 {
     test::utils::integration_test_guard integration;
 

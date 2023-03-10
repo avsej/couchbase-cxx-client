@@ -19,9 +19,9 @@
 
 #include "core/utils/connection_string.hxx"
 
-TEST_CASE("unit: connection string", "[unit]")
+TEST_CASE("unit: connection string")
 {
-    SECTION("full example")
+    SUBCASE("full example")
     {
         auto spec =
           couchbase::core::utils::parse_connection_string("couchbase://localhost:8091=http;127.0.0.1=mcd/default?enable_tracing=false");
@@ -46,7 +46,7 @@ TEST_CASE("unit: connection string", "[unit]")
         CHECK(spec.default_bucket_name == "default");
     }
 
-    SECTION("scheme")
+    SUBCASE("scheme")
     {
         CHECK(couchbase::core::utils::parse_connection_string("couchbase://127.0.0.1").scheme == "couchbase");
         CHECK(couchbase::core::utils::parse_connection_string("http://127.0.0.1").scheme == "http");
@@ -55,7 +55,7 @@ TEST_CASE("unit: connection string", "[unit]")
         CHECK(couchbase::core::utils::parse_connection_string("127.0.0.1").scheme == "couchbase");
         CHECK(couchbase::core::utils::parse_connection_string("127.0.0.1:8091").scheme == "couchbase");
 
-        SECTION("default bootstrap mode")
+        SUBCASE("default bootstrap mode")
         {
             CHECK(couchbase::core::utils::parse_connection_string("couchbase://").default_mode ==
                   couchbase::core::utils::connection_string::bootstrap_mode::gcccp);
@@ -65,7 +65,7 @@ TEST_CASE("unit: connection string", "[unit]")
                   couchbase::core::utils::connection_string::bootstrap_mode::unspecified);
         }
 
-        SECTION("default port")
+        SUBCASE("default port")
         {
             CHECK(couchbase::core::utils::parse_connection_string("couchbase://").default_port == 11210);
             CHECK(couchbase::core::utils::parse_connection_string("couchbases://").default_port == 11207);
@@ -74,7 +74,7 @@ TEST_CASE("unit: connection string", "[unit]")
             CHECK(couchbase::core::utils::parse_connection_string("my+scheme://").default_port == 0);
         }
 
-        SECTION("tls")
+        SUBCASE("tls")
         {
             CHECK(couchbase::core::utils::parse_connection_string("couchbase://").tls == false);
             CHECK(couchbase::core::utils::parse_connection_string("http://").tls == false);
@@ -83,9 +83,9 @@ TEST_CASE("unit: connection string", "[unit]")
         }
     }
 
-    SECTION("bootstrap nodes")
+    SUBCASE("bootstrap nodes")
     {
-        SECTION("single node")
+        SUBCASE("single node")
         {
             CHECK(couchbase::core::utils::parse_connection_string("couchbase://1.2.3.4").bootstrap_nodes ==
                   std::vector<couchbase::core::utils::connection_string::node>{
@@ -166,7 +166,7 @@ TEST_CASE("unit: connection string", "[unit]")
                   });
         }
 
-        SECTION("multiple nodes")
+        SUBCASE("multiple nodes")
         {
             CHECK(couchbase::core::utils::parse_connection_string("couchbase://1.2.3.4,4.3.2.1").bootstrap_nodes ==
                   std::vector<couchbase::core::utils::connection_string::node>{
@@ -229,7 +229,7 @@ TEST_CASE("unit: connection string", "[unit]")
                   });
         }
 
-        SECTION("custom ports")
+        SUBCASE("custom ports")
         {
             CHECK(couchbase::core::utils::parse_connection_string("couchbase://1.2.3.4,4.3.2.1:11210").bootstrap_nodes ==
                   std::vector<couchbase::core::utils::connection_string::node>{
@@ -296,7 +296,7 @@ TEST_CASE("unit: connection string", "[unit]")
                   });
         }
 
-        SECTION("custom bootstrap mode")
+        SUBCASE("custom bootstrap mode")
         {
             CHECK(couchbase::core::utils::parse_connection_string("couchbase://1.2.3.4,4.3.2.1=MCD").bootstrap_nodes ==
                   std::vector<couchbase::core::utils::connection_string::node>{
@@ -359,7 +359,7 @@ TEST_CASE("unit: connection string", "[unit]")
                   });
         }
 
-        SECTION("default bucket name")
+        SUBCASE("default bucket name")
         {
             CHECK(couchbase::core::utils::parse_connection_string("couchbase://127.0.0.1/bucket").default_bucket_name == "bucket");
             CHECK(couchbase::core::utils::parse_connection_string("couchbase://127.0.0.1/bUcKeT").default_bucket_name == "bUcKeT");
@@ -369,7 +369,7 @@ TEST_CASE("unit: connection string", "[unit]")
         }
     }
 
-    SECTION("options")
+    SUBCASE("options")
     {
         CHECK(couchbase::core::utils::parse_connection_string("couchbase://127.0.0.1").options.trust_certificate.empty());
         CHECK(couchbase::core::utils::parse_connection_string("couchbase://127.0.0.1?trust_certificate=/etc/tls/example.cert")
@@ -378,7 +378,7 @@ TEST_CASE("unit: connection string", "[unit]")
         CHECK(spec.options.key_value_timeout == std::chrono::milliseconds(42));
         CHECK(spec.options.query_timeout == std::chrono::milliseconds(123));
 
-        SECTION("parameters")
+        SUBCASE("parameters")
         {
             CHECK(spec.params == std::map<std::string, std::string>{
                                    { "key_value_timeout", "42" },
@@ -404,7 +404,7 @@ TEST_CASE("unit: connection string", "[unit]")
         }
     }
 
-    SECTION("parsing errors")
+    SUBCASE("parsing errors")
     {
         CHECK(couchbase::core::utils::parse_connection_string("").error == "failed to parse connection string: empty input");
         CHECK(couchbase::core::utils::parse_connection_string("couchbase://127.0.0.1/bucket/foo").error ==

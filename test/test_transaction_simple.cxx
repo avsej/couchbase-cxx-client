@@ -49,7 +49,7 @@ get_conf()
     return cfg;
 }
 
-TEST_CASE("transactions: arbitrary runtime error", "[transactions]")
+TEST_CASE("transactions: arbitrary runtime error")
 {
     test::utils::integration_test_guard integration;
 
@@ -80,7 +80,7 @@ TEST_CASE("transactions: arbitrary runtime error", "[transactions]")
       transaction_exception);
 }
 
-TEST_CASE("transactions: arbitrary exception", "[transactions]")
+TEST_CASE("transactions: arbitrary exception")
 {
     test::utils::integration_test_guard integration;
 
@@ -106,7 +106,7 @@ TEST_CASE("transactions: arbitrary exception", "[transactions]")
       transaction_exception);
 }
 
-TEST_CASE("transactions: can get replica", "[transactions]")
+TEST_CASE("transactions: can get replica")
 {
     test::utils::integration_test_guard integration;
 
@@ -139,7 +139,7 @@ TEST_CASE("transactions: can get replica", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: can use custom metadata collections per transactions", "[transactions]")
+TEST_CASE("transactions: can use custom metadata collections per transactions")
 {
     test::utils::integration_test_guard integration;
 
@@ -173,7 +173,7 @@ TEST_CASE("transactions: can use custom metadata collections per transactions", 
     }
 }
 
-TEST_CASE("transactions: can use custom metadata collections", "[transactions]")
+TEST_CASE("transactions: can use custom metadata collections")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -206,7 +206,7 @@ TEST_CASE("transactions: can use custom metadata collections", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: non existent bucket in custom metadata collections", "[transactions]")
+TEST_CASE("transactions: non existent bucket in custom metadata collections")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -219,7 +219,7 @@ TEST_CASE("transactions: non existent bucket in custom metadata collections", "[
     REQUIRE_THROWS_AS([](auto cluster, auto cfg) { transactions txn(cluster, cfg); }(cluster, cfg), std::runtime_error);
 }
 
-TEST_CASE("transactions: non existent scope in custom metadata collections", "[transactions]")
+TEST_CASE("transactions: non existent scope in custom metadata collections")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -258,7 +258,7 @@ TEST_CASE("transactions: non existent scope in custom metadata collections", "[t
     }
 }
 
-TEST_CASE("transactions: non existent collection in custom metadata collections", "[transactions]")
+TEST_CASE("transactions: non existent collection in custom metadata collections")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -293,7 +293,7 @@ TEST_CASE("transactions: non existent collection in custom metadata collections"
     }
 }
 
-TEST_CASE("transactions: raw std::strings become json strings", "[transactions]")
+TEST_CASE("transactions: raw std::strings become json strings")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -320,7 +320,7 @@ TEST_CASE("transactions: raw std::strings become json strings", "[transactions]"
     }
 }
 
-TEST_CASE("transactions: quoted std::strings end up with 2 quotes (that's bad)", "[transactions]")
+TEST_CASE("transactions: quoted std::strings end up with 2 quotes (that's bad)")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -342,7 +342,7 @@ TEST_CASE("transactions: quoted std::strings end up with 2 quotes (that's bad)",
     }
 }
 
-TEST_CASE("transactions: query error can be handled", "[transactions]")
+TEST_CASE("transactions: query error can be handled")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -355,7 +355,7 @@ TEST_CASE("transactions: query error can be handled", "[transactions]")
     });
 }
 
-TEST_CASE("transactions: unhandled query error fails transaction", "[transactions]")
+TEST_CASE("transactions: unhandled query error fails transaction")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -370,7 +370,7 @@ TEST_CASE("transactions: unhandled query error fails transaction", "[transaction
       transaction_exception);
 }
 
-TEST_CASE("transactions: query mode get optional", "[transactions]")
+TEST_CASE("transactions: query mode get optional")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -391,7 +391,7 @@ TEST_CASE("transactions: query mode get optional", "[transactions]")
     });
 }
 
-TEST_CASE("transactions: can get replace objects", "[transactions]")
+TEST_CASE("transactions: can get replace objects")
 {
     test::utils::integration_test_guard integration;
     SimpleObject o{ "someone", 100 };
@@ -420,7 +420,7 @@ TEST_CASE("transactions: can get replace objects", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: can get replace mixed object strings", "[transactions]")
+TEST_CASE("transactions: can get replace mixed object strings")
 {
     test::utils::integration_test_guard integration;
     SimpleObject o{ "someone", 100 };
@@ -450,7 +450,7 @@ TEST_CASE("transactions: can get replace mixed object strings", "[transactions]"
     }
 }
 
-TEST_CASE("transactions: can rollback insert", "[transactions]")
+TEST_CASE("transactions: can rollback insert")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -475,7 +475,7 @@ TEST_CASE("transactions: can rollback insert", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: can rollback remove", "[transactions]")
+TEST_CASE("transactions: can rollback remove")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -506,7 +506,7 @@ TEST_CASE("transactions: can rollback remove", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: can rollback replace", "[transactions]")
+TEST_CASE("transactions: can rollback replace")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -540,7 +540,7 @@ TEST_CASE("transactions: can rollback replace", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: can have trivial query in transaction", "[transactions]")
+TEST_CASE("transactions: can have trivial query in transaction")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -563,7 +563,7 @@ TEST_CASE("transactions: can have trivial query in transaction", "[transactions]
     });
 }
 
-TEST_CASE("transactions: can modify doc in query", "[transactions]")
+TEST_CASE("transactions: can modify doc in query")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -591,7 +591,7 @@ TEST_CASE("transactions: can modify doc in query", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: can rollback", "[transactions]")
+TEST_CASE("transactions: can rollback")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -625,7 +625,7 @@ TEST_CASE("transactions: can rollback", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: query updates insert", "[transactions]")
+TEST_CASE("transactions: query updates insert")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -647,7 +647,7 @@ TEST_CASE("transactions: query updates insert", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: can KV get", "[transactions]")
+TEST_CASE("transactions: can KV get")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -671,7 +671,7 @@ TEST_CASE("transactions: can KV get", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: can KV insert", "[transactions]")
+TEST_CASE("transactions: can KV insert")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -693,7 +693,7 @@ TEST_CASE("transactions: can KV insert", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: can rollback KV insert", "[transactions]")
+TEST_CASE("transactions: can rollback KV insert")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -718,7 +718,7 @@ TEST_CASE("transactions: can rollback KV insert", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: can KV replace", "[transactions]")
+TEST_CASE("transactions: can KV replace")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -751,7 +751,7 @@ TEST_CASE("transactions: can KV replace", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: can rollback KV replace", "[transactions]")
+TEST_CASE("transactions: can rollback KV replace")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -789,7 +789,7 @@ TEST_CASE("transactions: can rollback KV replace", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: can KV remove", "[transactions]")
+TEST_CASE("transactions: can KV remove")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -817,7 +817,7 @@ TEST_CASE("transactions: can KV remove", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: can rollback KV remove", "[transactions]")
+TEST_CASE("transactions: can rollback KV remove")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -851,7 +851,7 @@ TEST_CASE("transactions: can rollback KV remove", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: can rollback retry bad KV replace", "[transactions]")
+TEST_CASE("transactions: can rollback retry bad KV replace")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -883,7 +883,7 @@ TEST_CASE("transactions: can rollback retry bad KV replace", "[transactions]")
     }
 }
 
-TEST_CASE("transactions: atr and client_record are binary documents", "[transactions]")
+TEST_CASE("transactions: atr and client_record are binary documents")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -909,7 +909,8 @@ TEST_CASE("transactions: atr and client_record are binary documents", "[transact
         REQUIRE(resp.value == binary_null);
     }
 }
-TEST_CASE("transactions: get non-existent doc fails txn", "[transactions]")
+
+TEST_CASE("transactions: get non-existent doc fails txn")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -918,7 +919,7 @@ TEST_CASE("transactions: get non-existent doc fails txn", "[transactions]")
     REQUIRE_THROWS_AS(txn.run([id](attempt_context& ctx) { ctx.get(id); }), transaction_exception);
 }
 
-TEST_CASE("transactions: get_optional on non-existent doc doesn't fail txn", "[transactions]")
+TEST_CASE("transactions: get_optional on non-existent doc doesn't fail txn")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -926,7 +927,8 @@ TEST_CASE("transactions: get_optional on non-existent doc doesn't fail txn", "[t
     couchbase::core::document_id id{ integration.ctx.bucket, "_default", "_default", test::utils::uniq_id("txn") };
     REQUIRE_NOTHROW(txn.run([id](attempt_context& ctx) { ctx.get_optional(id); }));
 }
-TEST_CASE("transactions: get after query behaves same as before a query", "[transactions]")
+
+TEST_CASE("transactions: get after query behaves same as before a query")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -939,7 +941,7 @@ TEST_CASE("transactions: get after query behaves same as before a query", "[tran
                       transaction_exception);
 }
 
-TEST_CASE("transactions: get_optional after query behaves same as before a query", "[transactions]")
+TEST_CASE("transactions: get_optional after query behaves same as before a query")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;
@@ -950,7 +952,8 @@ TEST_CASE("transactions: get_optional after query behaves same as before a query
         ctx.get_optional(id);
     }));
 }
-TEST_CASE("transactions: sergey example", "[transactions]")
+
+TEST_CASE("transactions: sergey example")
 {
     test::utils::integration_test_guard integration;
     auto cluster = integration.cluster;

@@ -29,7 +29,7 @@ struct query_result {
     std::vector<std::string> rows{};
 };
 
-TEST_CASE("unit: json_streaming_lexer parse query result in single chunk", "[unit]")
+TEST_CASE("unit: json_streaming_lexer parse query result in single chunk")
 {
     test::utils::init_logger();
 
@@ -78,7 +78,7 @@ null,1,false
     REQUIRE(result.rows[4] == R"(false)");
 }
 
-TEST_CASE("unit: json_streaming_lexer parse query result", "[unit]")
+TEST_CASE("unit: json_streaming_lexer parse query result")
 {
     test::utils::init_logger();
 
@@ -115,7 +115,7 @@ TEST_CASE("unit: json_streaming_lexer parse query result", "[unit]")
     REQUIRE(result.meta == chunks[0] + chunks[4]);
 }
 
-TEST_CASE("unit: json_streaming_lexer parse query result in multiple chunks", "[unit]")
+TEST_CASE("unit: json_streaming_lexer parse query result in multiple chunks")
 {
     test::utils::init_logger();
 
@@ -150,7 +150,7 @@ TEST_CASE("unit: json_streaming_lexer parse query result in multiple chunks", "[
     REQUIRE(result.meta == expected_meta);
 }
 
-TEST_CASE("unit: json_streaming_lexer parse chunked metadata trailer", "[unit]")
+TEST_CASE("unit: json_streaming_lexer parse chunked metadata trailer")
 {
     test::utils::init_logger();
 
@@ -187,7 +187,7 @@ TEST_CASE("unit: json_streaming_lexer parse chunked metadata trailer", "[unit]")
     REQUIRE(result.rows[0] == R"(42)");
 }
 
-TEST_CASE("unit: json_streaming_lexer parse payload with missing results", "[unit]")
+TEST_CASE("unit: json_streaming_lexer parse payload with missing results")
 {
     test::utils::init_logger();
 

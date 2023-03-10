@@ -21,7 +21,7 @@
 
 #include <couchbase/query_options.hxx>
 
-TEST_CASE("unit: query options can encode positional parameters automatically", "[unit]")
+TEST_CASE("unit: query options can encode positional parameters automatically")
 {
     profile john{ "john", "John Doe", 1970 };
     auto options = couchbase::query_options{}.positional_parameters("foo", 42, 3.14, false, nullptr, john).build();
@@ -35,7 +35,7 @@ TEST_CASE("unit: query options can encode positional parameters automatically", 
             couchbase::core::utils::to_binary("{\"birth_year\":1970,\"full_name\":\"John Doe\",\"username\":\"john\"}"));
 }
 
-TEST_CASE("unit: query options can encode named parameters automatically", "[unit]")
+TEST_CASE("unit: query options can encode named parameters automatically")
 {
     profile john{ "john", "John Doe", 1970 };
     auto options = couchbase::query_options{}

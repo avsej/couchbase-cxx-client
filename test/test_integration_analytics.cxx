@@ -60,7 +60,7 @@ TEST_CASE("integration: analytics query")
         REQUIRE_SUCCESS(resp.ctx.ec());
     }
 
-    SECTION("simple query")
+    SUBCASE("simple query")
     {
         couchbase::core::operations::analytics_response resp{};
         REQUIRE(test::utils::wait_until([&]() {
@@ -76,7 +76,7 @@ TEST_CASE("integration: analytics query")
         REQUIRE(resp.meta.status == couchbase::core::operations::analytics_response::analytics_status::success);
     }
 
-    SECTION("positional params")
+    SUBCASE("positional params")
     {
         couchbase::core::operations::analytics_response resp{};
         REQUIRE(test::utils::wait_until([&]() {
@@ -90,7 +90,7 @@ TEST_CASE("integration: analytics query")
         REQUIRE(resp.rows[0] == value);
     }
 
-    SECTION("named params")
+    SUBCASE("named params")
     {
         couchbase::core::operations::analytics_response resp{};
         REQUIRE(test::utils::wait_until([&]() {
@@ -104,7 +104,7 @@ TEST_CASE("integration: analytics query")
         REQUIRE(resp.rows[0] == value);
     }
 
-    SECTION("named params preformatted")
+    SUBCASE("named params preformatted")
     {
         couchbase::core::operations::analytics_response resp{};
         REQUIRE(test::utils::wait_until([&]() {
@@ -118,7 +118,7 @@ TEST_CASE("integration: analytics query")
         REQUIRE(resp.rows[0] == value);
     }
 
-    SECTION("raw")
+    SUBCASE("raw")
     {
         couchbase::core::operations::analytics_response resp{};
         REQUIRE(test::utils::wait_until([&]() {
@@ -132,7 +132,7 @@ TEST_CASE("integration: analytics query")
         REQUIRE(resp.rows[0] == value);
     }
 
-    SECTION("consistency")
+    SUBCASE("consistency")
     {
         couchbase::core::operations::analytics_response resp{};
         CHECK(test::utils::wait_until([&]() {
@@ -163,7 +163,7 @@ TEST_CASE("integration: analytics query")
         REQUIRE(resp.rows[0] == value);
     }
 
-    SECTION("readonly")
+    SUBCASE("readonly")
     {
         couchbase::core::operations::analytics_request req{};
         req.statement = fmt::format("DROP DATASET Default.`{}`", dataset_name);
@@ -268,7 +268,7 @@ make_http_context()
 
 TEST_CASE("unit: analytics query")
 {
-    SECTION("priority true")
+    SUBCASE("priority true")
     {
         couchbase::core::io::http_request http_req;
         auto ctx = make_http_context();
@@ -281,7 +281,7 @@ TEST_CASE("unit: analytics query")
         REQUIRE(priority_header->second == "-1");
     }
 
-    SECTION("priority false")
+    SUBCASE("priority false")
     {
         couchbase::core::io::http_request http_req;
         auto ctx = make_http_context();

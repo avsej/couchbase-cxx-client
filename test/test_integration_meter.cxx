@@ -120,7 +120,7 @@ make_id(const test::utils::test_context& ctx, std::string key = "")
     return couchbase::core::document_id{ ctx.bucket, "_default", "_default", key };
 }
 
-TEST_CASE("integration: use external meter", "[integration]")
+TEST_CASE("integration: use external meter")
 {
     couchbase::core::cluster_options opts{};
     auto meter = std::make_shared<test_meter>();
@@ -129,15 +129,15 @@ TEST_CASE("integration: use external meter", "[integration]")
     test::utils::open_bucket(guard.cluster, guard.ctx.bucket);
     auto value = couchbase::core::utils::to_binary(R"({"some": "thing")");
     auto existing_id = make_id(guard.ctx, "foo");
-    SECTION("add doc 'foo'")
+    SUBCASE("add doc 'foo'")
     {
         couchbase::core::operations::upsert_request r{ existing_id, value };
         auto response = test::utils::execute(guard.cluster, r);
         REQUIRE_FALSE(response.ctx.ec());
     }
-    SECTION("test KV ops")
+    SUBCASE("test KV ops")
     {
-        SECTION("upsert")
+        SUBCASE("upsert")
         {
             meter->reset();
             couchbase::core::operations::upsert_request r{ existing_id, value };
@@ -147,7 +147,7 @@ TEST_CASE("integration: use external meter", "[integration]")
             REQUIRE_FALSE(recorders.empty());
             assert_kv_recorder_tags(recorders, "upsert");
         }
-        SECTION("insert")
+        SUBCASE("insert")
         {
             meter->reset();
             couchbase::core::operations::insert_request r{ make_id(guard.ctx), value };
@@ -157,7 +157,7 @@ TEST_CASE("integration: use external meter", "[integration]")
             REQUIRE_FALSE(recorders.empty());
             assert_kv_recorder_tags(recorders, "insert");
         }
-        SECTION("replace")
+        SUBCASE("replace")
         {
             meter->reset();
             auto new_value = couchbase::core::utils::to_binary("{\"some\": \"thing else\"");
@@ -168,7 +168,7 @@ TEST_CASE("integration: use external meter", "[integration]")
             REQUIRE_FALSE(recorders.empty());
             assert_kv_recorder_tags(recorders, "replace");
         }
-        SECTION("get")
+        SUBCASE("get")
         {
             meter->reset();
             couchbase::core::operations::get_request r{ existing_id };

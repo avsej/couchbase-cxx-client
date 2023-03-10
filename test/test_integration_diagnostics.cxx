@@ -22,7 +22,7 @@
 
 using namespace std::literals::chrono_literals;
 
-TEST_CASE("unit: serializing diagnostics report", "[unit]")
+TEST_CASE("unit: serializing diagnostics report")
 {
     couchbase::core::diag::diagnostics_result res{
         "0xdeadbeef",
@@ -176,7 +176,7 @@ TEST_CASE("unit: serializing diagnostics report", "[unit]")
     REQUIRE(report == expected);
 }
 
-TEST_CASE("integration: serializing ping report", "[integration]")
+TEST_CASE("integration: serializing ping report")
 {
     test::utils::integration_test_guard integration;
 
@@ -317,7 +317,7 @@ TEST_CASE("integration: serializing ping report", "[integration]")
     REQUIRE(report == expected);
 }
 
-TEST_CASE("integration: fetch diagnostics after N1QL query", "[integration]")
+TEST_CASE("integration: fetch diagnostics after N1QL query")
 {
     test::utils::integration_test_guard integration;
 
@@ -349,7 +349,7 @@ TEST_CASE("integration: fetch diagnostics after N1QL query", "[integration]")
     }
 }
 
-TEST_CASE("integration: ping", "[integration]")
+TEST_CASE("integration: ping")
 {
     test::utils::integration_test_guard integration;
 
@@ -396,7 +396,7 @@ TEST_CASE("integration: ping", "[integration]")
     }
 }
 
-TEST_CASE("integration: ping allows to select services", "[integration]")
+TEST_CASE("integration: ping allows to select services")
 {
     test::utils::integration_test_guard integration;
 
@@ -420,7 +420,7 @@ TEST_CASE("integration: ping allows to select services", "[integration]")
     }
 }
 
-TEST_CASE("integration: ping allows to select bucket and opens it automatically", "[integration]")
+TEST_CASE("integration: ping allows to select bucket and opens it automatically")
 {
     test::utils::integration_test_guard integration;
 

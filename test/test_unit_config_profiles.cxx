@@ -46,7 +46,7 @@ class test_profile_with_args : public couchbase::core::config_profile
     std::string extra_;
 };
 
-TEST_CASE("unit: can apply wan_development profile", "[unit]")
+TEST_CASE("unit: can apply wan_development profile")
 {
     // see https://docs.google.com/document/d/1LNCYgV2Eqymp3pGmA8WKPQOLSpcRyv0P7NpMYHVcUM0
     // for details and latest info on expectations.
@@ -65,7 +65,7 @@ TEST_CASE("unit: can apply wan_development profile", "[unit]")
     CHECK(opts.dns_config.timeout().count() == 20'000);
 }
 
-TEST_CASE("unit: all other options remain unchanged", "[unit]")
+TEST_CASE("unit: all other options remain unchanged")
 {
     couchbase::core::cluster_options default_opts{};
     couchbase::core::cluster_options opts{};
@@ -97,20 +97,20 @@ TEST_CASE("unit: all other options remain unchanged", "[unit]")
     CHECK(opts.user_agent_extra == default_opts.user_agent_extra);
 }
 
-TEST_CASE("unit: can register and use new profile", "[unit]")
+TEST_CASE("unit: can register and use new profile")
 {
     couchbase::core::cluster_options opts{};
     couchbase::core::known_profiles().register_profile<test_profile>("test");
     opts.apply_profile("test");
     CHECK(opts.key_value_timeout.count() == 10);
 }
-TEST_CASE("unit: unknown profile name raises exception", "[unit]")
+TEST_CASE("unit: unknown profile name raises exception")
 {
     couchbase::core::cluster_options opts{};
     REQUIRE_THROWS_AS(opts.apply_profile("i don't exist"), std::invalid_argument);
 }
 
-TEST_CASE("unit: can apply multiple profiles", "[unit]")
+TEST_CASE("unit: can apply multiple profiles")
 {
     couchbase::core::cluster_options opts{};
     couchbase::core::known_profiles().register_profile<test_profile>("test");
@@ -122,7 +122,7 @@ TEST_CASE("unit: can apply multiple profiles", "[unit]")
     CHECK(opts.key_value_timeout.count() == 10);
 }
 
-TEST_CASE("unit: can have profile with constructor args", "[unit]")
+TEST_CASE("unit: can have profile with constructor args")
 {
     couchbase::core::cluster_options opts{};
     couchbase::core::known_profiles().register_profile<test_profile_with_args>(std::string("test_with_args"),

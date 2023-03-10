@@ -87,7 +87,7 @@ auto one_ms = chrono::milliseconds(1);
 auto ten_ms = chrono::milliseconds(10);
 auto hundred_ms = chrono::milliseconds(100);
 
-TEST_CASE("exponential backoff with timeout: will timeout", "[unit]")
+TEST_CASE("exponential backoff with timeout: will timeout")
 {
     retry_state state;
     auto start = chrono::steady_clock::now();
@@ -104,7 +104,7 @@ TEST_CASE("exponential backoff with timeout: will timeout", "[unit]")
     REQUIRE(state.elapsed_ms() + extra >= hundred_ms);
 }
 
-TEST_CASE("exponential backoff with timeout: retry count in range", "[unit]")
+TEST_CASE("exponential backoff with timeout: retry count in range")
 {
     retry_state state;
     REQUIRE_THROWS_AS(retry_op_exponential_backoff_timeout<void>(one_ms, ten_ms, hundred_ms, [&state] { state.function(); }),
@@ -120,7 +120,7 @@ TEST_CASE("exponential backoff with timeout: retry count in range", "[unit]")
     REQUIRE(state.timings.size() < 15);
 }
 
-TEST_CASE("exponential backoff with timeout: retry timing reasonable", "[unit]")
+TEST_CASE("exponential backoff with timeout: retry timing reasonable")
 {
     retry_state state;
     REQUIRE_THROWS_AS(retry_op_exponential_backoff_timeout<void>(one_ms, ten_ms, hundred_ms, [&state] { state.function(); }),
@@ -144,7 +144,7 @@ TEST_CASE("exponential backoff with timeout: retry timing reasonable", "[unit]")
     }
 }
 
-TEST_CASE("exponential backoff with timeout: always retries at least once", "[unit]")
+TEST_CASE("exponential backoff with timeout: always retries at least once")
 {
     retry_state state;
     REQUIRE_THROWS_AS(retry_op_exponential_backoff_timeout<void>(ten_ms, ten_ms, ten_ms, [&state] { state.function(); }),
@@ -153,7 +153,7 @@ TEST_CASE("exponential backoff with timeout: always retries at least once", "[un
     REQUIRE(2 <= state.timings.size());
 }
 
-TEST_CASE("exponential backoff with max attempts: will stop at max", "[unit]")
+TEST_CASE("exponential backoff with max attempts: will stop at max")
 {
     retry_state state;
     REQUIRE_THROWS_AS(retry_op_exponential_backoff<void>(one_ms, 20, [&state] { state.function(); }), retry_operation_retries_exhausted);
@@ -161,7 +161,7 @@ TEST_CASE("exponential backoff with max attempts: will stop at max", "[unit]")
     REQUIRE(21 == state.timings.size());
 }
 
-TEST_CASE("exponential backoff with max attempts: zero retries", "[unit]")
+TEST_CASE("exponential backoff with max attempts: zero retries")
 {
     retry_state state;
     REQUIRE_THROWS_AS(retry_op_exponential_backoff<void>(one_ms, 0, [&state] { state.function(); }), retry_operation_retries_exhausted);
@@ -169,7 +169,7 @@ TEST_CASE("exponential backoff with max attempts: zero retries", "[unit]")
     REQUIRE(1 == state.timings.size());
 }
 
-TEST_CASE("exponential backoff with max attempts: retry timing reasonable", "[unit]")
+TEST_CASE("exponential backoff with max attempts: retry timing reasonable")
 {
     retry_state state;
     REQUIRE_THROWS_AS(retry_op_exponential_backoff<void>(one_ms, 10, [&state] { state.function(); }), retry_operation_retries_exhausted);
@@ -187,7 +187,7 @@ TEST_CASE("exponential backoff with max attempts: retry timing reasonable", "[un
     }
 }
 
-TEST_CASE("exp_delay: can call till timeout", "[unit]")
+TEST_CASE("exp_delay: can call till timeout")
 {
     retry_state state;
     exp_delay op(one_ms, ten_ms, hundred_ms);
@@ -207,7 +207,7 @@ TEST_CASE("exp_delay: can call till timeout", "[unit]")
     }
 }
 
-TEST_CASE("retryable op: can have constant delay", "[unit]")
+TEST_CASE("retryable op: can have constant delay")
 {
     retry_state state;
     auto op = constant_delay(ten_ms, 10);
@@ -225,7 +225,7 @@ TEST_CASE("retryable op: can have constant delay", "[unit]")
     }
 }
 
-TEST_CASE("transaction_get_result: can convert core transaction_get_result to public, and visa-versa", "[unit]")
+TEST_CASE("transaction_get_result: can convert core transaction_get_result to public, and visa-versa")
 {
     const tao::json::value content{ { "some_number", 0 } };
     const auto binary_content = couchbase::core::utils::json::generate_binary(content);
@@ -252,7 +252,7 @@ TEST_CASE("transaction_get_result: can convert core transaction_get_result to pu
                                                                  false);
     const couchbase::core::transactions::document_metadata metadata("cas", "revid", 0, "crc32");
 
-    SECTION("core->public")
+    SUBCASE("core->public")
     {
         couchbase::core::transactions::transaction_get_result core_result(
           { bucket, scope, collection, key }, binary_content, cas.value(), links, metadata);
@@ -273,7 +273,7 @@ TEST_CASE("transaction_get_result: can convert core transaction_get_result to pu
         // core_result.content() since it can be anything.  The std::vector is _valid_, so we
         // can manipulate it, but the contents are not guaranteed.
     }
-    SECTION("core->public->core")
+    SUBCASE("core->public->core")
     {
         couchbase::core::transactions::transaction_get_result core_result(
           { bucket, scope, collection, key }, binary_content, cas.value(), links, metadata);
@@ -311,13 +311,13 @@ TEST_CASE("transaction_get_result: can convert core transaction_get_result to pu
         REQUIRE(final_core_result.metadata()->exptime() == metadata.exptime());
         REQUIRE(final_core_result.metadata()->revid() == metadata.revid());
     }
-    SECTION("default constructed core->public")
+    SUBCASE("default constructed core->public")
     {
         couchbase::core::transactions::transaction_get_result core_result{};
         auto final_public_result = core_result.to_public_result();
         REQUIRE(final_public_result.cas().empty());
     }
-    SECTION("default constructed public->core->public")
+    SUBCASE("default constructed public->core->public")
     {
         couchbase::transactions::transaction_get_result public_res;
         couchbase::core::transactions::transaction_get_result core_res(public_res);

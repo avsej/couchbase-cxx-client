@@ -129,7 +129,7 @@ row: {"airline":{"callsign":"MILE-AIR","country":"United States","iata":"Q5","ic
 
 } // namespace start_using
 
-TEST_CASE("example: start using", "[integration]")
+TEST_CASE("example: start using")
 {
     test::utils::integration_test_guard integration;
     if (integration.cluster_version().is_capella()) {
@@ -438,7 +438,7 @@ row: {"airline":{"callsign":"MILE-AIR","country":"United States","iata":"Q5","ic
 //! [example-search]
 } // namespace example_search
 
-TEST_CASE("example: search", "[integration]")
+TEST_CASE("example: search")
 {
     test::utils::integration_test_guard integration;
 
@@ -569,7 +569,7 @@ main(int argc, const char* argv[])
 //! [example-buckets]
 } // namespace example_buckets
 
-TEST_CASE("example: bucket management", "[integration]")
+TEST_CASE("example: bucket management")
 {
     test::utils::integration_test_guard integration;
 

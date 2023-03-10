@@ -19,7 +19,7 @@
 
 #include "core/operations/management/collections.hxx"
 
-TEST_CASE("integration: missing scope and collection", "[integration]")
+TEST_CASE("integration: missing scope and collection")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -28,7 +28,7 @@ TEST_CASE("integration: missing scope and collection", "[integration]")
         SKIP("cluster does not support collections");
     }
 
-    SECTION("get missing scope")
+    SUBCASE("get missing scope")
     {
         couchbase::core::document_id id{ integration.ctx.bucket, "missing_scope", "_default", "key" };
         couchbase::core::operations::get_request req{ id };
@@ -36,7 +36,7 @@ TEST_CASE("integration: missing scope and collection", "[integration]")
         REQUIRE(resp.ctx.ec() == couchbase::errc::common::scope_not_found);
     }
 
-    SECTION("insert missing scope")
+    SUBCASE("insert missing scope")
     {
         couchbase::core::document_id id{ integration.ctx.bucket, "missing_scope", "_default", "key" };
         const tao::json::value value = {
@@ -48,7 +48,7 @@ TEST_CASE("integration: missing scope and collection", "[integration]")
         REQUIRE(resp.ctx.ec() == couchbase::errc::common::scope_not_found);
     }
 
-    SECTION("get missing collection")
+    SUBCASE("get missing collection")
     {
         couchbase::core::document_id id{ integration.ctx.bucket, "_default", "missing_collection", "key" };
         couchbase::core::operations::get_request req{ id };
@@ -57,7 +57,7 @@ TEST_CASE("integration: missing scope and collection", "[integration]")
         REQUIRE(resp.ctx.retried_because_of(couchbase::retry_reason::key_value_collection_outdated));
     }
 
-    SECTION("insert missing collection")
+    SUBCASE("insert missing collection")
     {
         couchbase::core::document_id id{ integration.ctx.bucket, "_default", "missing_collection", "key" };
         const tao::json::value value = {
@@ -71,7 +71,7 @@ TEST_CASE("integration: missing scope and collection", "[integration]")
     }
 }
 
-TEST_CASE("integration: get and insert non default scope and collection", "[integration]")
+TEST_CASE("integration: get and insert non default scope and collection")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -121,7 +121,7 @@ TEST_CASE("integration: get and insert non default scope and collection", "[inte
     }
 }
 
-TEST_CASE("integration: insert into dropped scope", "[integration]")
+TEST_CASE("integration: insert into dropped scope")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);

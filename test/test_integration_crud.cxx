@@ -29,7 +29,7 @@ static const tao::json::value basic_doc = {
 };
 static const std::vector<std::byte> basic_doc_json = couchbase::core::utils::json::generate_binary(basic_doc);
 
-TEST_CASE("integration: switching off mutation token", "[integration]")
+TEST_CASE("integration: switching off mutation token")
 {
     couchbase::core::cluster_options opts{};
     opts.enable_mutation_tokens = false;
@@ -59,7 +59,7 @@ TEST_CASE("integration: switching off mutation token", "[integration]")
     }
 }
 
-TEST_CASE("integration: crud on default collection", "[integration]")
+TEST_CASE("integration: crud on default collection")
 {
     test::utils::integration_test_guard integration;
 
@@ -129,21 +129,21 @@ TEST_CASE("integration: crud on default collection", "[integration]")
     }
 }
 
-TEST_CASE("integration: get", "[integration]")
+TEST_CASE("integration: get")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
 
     couchbase::core::document_id id{ integration.ctx.bucket, "_default", "_default", test::utils::uniq_id("get") };
 
-    SECTION("miss")
+    SUBCASE("miss")
     {
         couchbase::core::operations::get_request req{ id };
         auto resp = test::utils::execute(integration.cluster, req);
         REQUIRE(resp.ctx.ec() == couchbase::errc::key_value::document_not_found);
     }
 
-    SECTION("hit")
+    SUBCASE("hit")
     {
         auto flags = 0xdeadbeef;
         {
@@ -162,14 +162,14 @@ TEST_CASE("integration: get", "[integration]")
     }
 }
 
-TEST_CASE("integration: touch", "[integration]")
+TEST_CASE("integration: touch")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
 
     couchbase::core::document_id id{ integration.ctx.bucket, "_default", "_default", test::utils::uniq_id("touch") };
 
-    SECTION("miss")
+    SUBCASE("miss")
     {
         couchbase::core::operations::touch_request req{ id };
         req.expiry = 666;
@@ -177,7 +177,7 @@ TEST_CASE("integration: touch", "[integration]")
         REQUIRE(resp.ctx.ec() == couchbase::errc::key_value::document_not_found);
     }
 
-    SECTION("hit")
+    SUBCASE("hit")
     {
         {
             couchbase::core::operations::insert_request req{ id, basic_doc_json };
@@ -193,7 +193,7 @@ TEST_CASE("integration: touch", "[integration]")
     }
 }
 
-TEST_CASE("integration: pessimistic locking", "[integration]")
+TEST_CASE("integration: pessimistic locking")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -282,7 +282,7 @@ TEST_CASE("integration: pessimistic locking", "[integration]")
     }
 }
 
-TEST_CASE("integration: lock/unlock without lock time", "[integration]")
+TEST_CASE("integration: lock/unlock without lock time")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -312,7 +312,7 @@ TEST_CASE("integration: lock/unlock without lock time", "[integration]")
     }
 }
 
-TEST_CASE("integration: touch with zero expiry resets expiry", "[integration]")
+TEST_CASE("integration: touch with zero expiry resets expiry")
 {
     test::utils::integration_test_guard integration;
 
@@ -358,7 +358,7 @@ TEST_CASE("integration: touch with zero expiry resets expiry", "[integration]")
     }
 }
 
-TEST_CASE("integration: exists", "[integration]")
+TEST_CASE("integration: exists")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -412,7 +412,7 @@ TEST_CASE("integration: exists", "[integration]")
     }
 }
 
-TEST_CASE("integration: zero length value", "[integration]")
+TEST_CASE("integration: zero length value")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -433,28 +433,28 @@ TEST_CASE("integration: zero length value", "[integration]")
     }
 }
 
-TEST_CASE("integration: ops on missing document", "[integration]")
+TEST_CASE("integration: ops on missing document")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
 
     couchbase::core::document_id id{ integration.ctx.bucket, "_default", "_default", "missing_key" };
 
-    SECTION("get")
+    SUBCASE("get")
     {
         couchbase::core::operations::get_request req{ id };
         auto resp = test::utils::execute(integration.cluster, req);
         REQUIRE(resp.ctx.ec() == couchbase::errc::key_value::document_not_found);
     }
 
-    SECTION("remove")
+    SUBCASE("remove")
     {
         couchbase::core::operations::remove_request req{ id };
         auto resp = test::utils::execute(integration.cluster, req);
         REQUIRE(resp.ctx.ec() == couchbase::errc::key_value::document_not_found);
     }
 
-    SECTION("replace")
+    SUBCASE("replace")
     {
         couchbase::core::operations::replace_request req{ id, couchbase::core::utils::to_binary("") };
         auto resp = test::utils::execute(integration.cluster, req);
@@ -462,7 +462,7 @@ TEST_CASE("integration: ops on missing document", "[integration]")
     }
 }
 
-TEST_CASE("integration: cas replace", "[integration]")
+TEST_CASE("integration: cas replace")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -477,7 +477,7 @@ TEST_CASE("integration: cas replace", "[integration]")
         cas = resp.cas;
     }
 
-    SECTION("incorrect")
+    SUBCASE("incorrect")
     {
         couchbase::core::operations::replace_request req{ id, couchbase::core::utils::to_binary("") };
         req.cas = couchbase::cas{ cas.value() + 1 };
@@ -485,7 +485,7 @@ TEST_CASE("integration: cas replace", "[integration]")
         REQUIRE(resp.ctx.ec() == couchbase::errc::common::cas_mismatch);
     }
 
-    SECTION("correct")
+    SUBCASE("correct")
     {
         couchbase::core::operations::replace_request req{ id, couchbase::core::utils::to_binary("") };
         req.cas = cas;
@@ -494,7 +494,7 @@ TEST_CASE("integration: cas replace", "[integration]")
     }
 }
 
-TEST_CASE("integration: upsert preserve expiry", "[integration]")
+TEST_CASE("integration: upsert preserve expiry")
 {
     test::utils::integration_test_guard integration;
 
@@ -561,7 +561,7 @@ TEST_CASE("integration: upsert preserve expiry", "[integration]")
     }
 }
 
-TEST_CASE("integration: upsert with handler capturing non-copyable object", "[integration]")
+TEST_CASE("integration: upsert with handler capturing non-copyable object")
 {
     test::utils::integration_test_guard integration;
 
@@ -583,7 +583,7 @@ TEST_CASE("integration: upsert with handler capturing non-copyable object", "[in
     }
 }
 
-TEST_CASE("integration: upsert may trigger snappy compression", "[integration]")
+TEST_CASE("integration: upsert may trigger snappy compression")
 {
     test::utils::integration_test_guard integration;
 
@@ -636,7 +636,7 @@ TEST_CASE("integration: upsert may trigger snappy compression", "[integration]")
     }
 }
 
-TEST_CASE("integration: multi-threaded open/close bucket", "[integration]")
+TEST_CASE("integration: multi-threaded open/close bucket")
 {
     test::utils::integration_test_guard integration;
     constexpr auto number_of_threads{ 100 };
@@ -676,7 +676,7 @@ TEST_CASE("integration: multi-threaded open/close bucket", "[integration]")
     std::for_each(threads.begin(), threads.end(), [](auto& thread) { thread.join(); });
 }
 
-TEST_CASE("integration: open bucket that does not exist", "[integration]")
+TEST_CASE("integration: open bucket that does not exist")
 {
     test::utils::integration_test_guard integration;
 
@@ -693,7 +693,7 @@ TEST_CASE("integration: open bucket that does not exist", "[integration]")
     REQUIRE(rc == couchbase::errc::common::bucket_not_found);
 }
 
-TEST_CASE("integration: upsert returns valid mutation token", "[integration]")
+TEST_CASE("integration: upsert returns valid mutation token")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -764,7 +764,7 @@ TEST_CASE("integration: upsert returns valid mutation token", "[integration]")
     }
 }
 
-TEST_CASE("integration: upsert is cancelled immediately if the cluster was closed", "[integration]")
+TEST_CASE("integration: upsert is cancelled immediately if the cluster was closed")
 {
     test::utils::integration_test_guard integration;
 
@@ -786,7 +786,7 @@ TEST_CASE("integration: upsert is cancelled immediately if the cluster was close
     }
 }
 
-TEST_CASE("integration: pessimistic locking with public API", "[integration]")
+TEST_CASE("integration: pessimistic locking with public API")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -873,7 +873,7 @@ TEST_CASE("integration: pessimistic locking with public API", "[integration]")
     }
 }
 
-TEST_CASE("integration: exists with public API", "[integration]")
+TEST_CASE("integration: exists with public API")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -917,7 +917,7 @@ TEST_CASE("integration: exists with public API", "[integration]")
     }
 }
 
-TEST_CASE("integration: get with expiry with public API", "[integration]")
+TEST_CASE("integration: get with expiry with public API")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -931,7 +931,7 @@ TEST_CASE("integration: get with expiry with public API", "[integration]")
 
     auto get_options = couchbase::get_options{}.with_expiry(true);
 
-    SECTION("no expiry set on the document")
+    SUBCASE("no expiry set on the document")
     {
         {
             auto [ctx, resp] = collection.insert(id, basic_doc, {}).get();
@@ -945,7 +945,7 @@ TEST_CASE("integration: get with expiry with public API", "[integration]")
         }
     }
 
-    SECTION("some expiry is set on the document")
+    SUBCASE("some expiry is set on the document")
     {
         auto the_expiry = std::chrono::system_clock::from_time_t(1878422400);
         auto insert_options = couchbase::insert_options{}.expiry(the_expiry);

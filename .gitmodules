@@ -2,9 +2,6 @@
 	path = third_party/json
 	url = https://github.com/couchbasedeps/taocpp-json.git
     branch = 1.0.0-couchbase
-[submodule "third_party/catch2"]
-	path = third_party/catch2
-	url = https://github.com/catchorg/Catch2.git
 [submodule "third_party/docopt"]
 	path = third_party/docopt
 	url = https://github.com/docopt/docopt.cpp.git

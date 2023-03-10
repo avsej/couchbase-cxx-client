@@ -41,7 +41,7 @@ struct couchbase::codec::is_transcoder<smuggling_transcoder> : public std::true_
 };
 //! [smuggling-transcoder]
 
-TEST_CASE("unit: get any replica result with custom coder", "[integration]")
+TEST_CASE("unit: get any replica result with custom coder")
 {
     couchbase::get_replica_result result{
         couchbase::cas{ 0 },
@@ -59,7 +59,7 @@ TEST_CASE("unit: get any replica result with custom coder", "[integration]")
     REQUIRE(data == std::vector{ std::byte{ 0xde }, std::byte{ 0xad }, std::byte{ 0xbe }, std::byte{ 0xaf } });
 }
 
-TEST_CASE("integration: get any replica", "[integration]")
+TEST_CASE("integration: get any replica")
 {
     test::utils::integration_test_guard integration;
 
@@ -95,7 +95,7 @@ TEST_CASE("integration: get any replica", "[integration]")
     }
 }
 
-TEST_CASE("integration: get all replicas", "[integration]")
+TEST_CASE("integration: get all replicas")
 {
     test::utils::integration_test_guard integration;
 
@@ -139,7 +139,7 @@ TEST_CASE("integration: get all replicas", "[integration]")
     }
 }
 
-TEST_CASE("integration: get all replicas with missing key", "[integration]")
+TEST_CASE("integration: get all replicas with missing key")
 {
     test::utils::integration_test_guard integration;
 
@@ -167,7 +167,7 @@ TEST_CASE("integration: get all replicas with missing key", "[integration]")
     }
 }
 
-TEST_CASE("integration: get any replica with missing key", "[integration]")
+TEST_CASE("integration: get any replica with missing key")
 {
     test::utils::integration_test_guard integration;
 
@@ -191,7 +191,7 @@ TEST_CASE("integration: get any replica with missing key", "[integration]")
     }
 }
 
-TEST_CASE("integration: get any replica low-level version", "[integration]")
+TEST_CASE("integration: get any replica low-level version")
 {
     test::utils::integration_test_guard integration;
 
@@ -226,7 +226,7 @@ TEST_CASE("integration: get any replica low-level version", "[integration]")
     }
 }
 
-TEST_CASE("integration: get all replicas low-level version", "[integration]")
+TEST_CASE("integration: get all replicas low-level version")
 {
     test::utils::integration_test_guard integration;
 

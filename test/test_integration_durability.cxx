@@ -21,7 +21,7 @@
 
 #include <couchbase/cluster.hxx>
 
-TEST_CASE("integration: durable operations", "[integration]")
+TEST_CASE("integration: durable operations")
 {
     test::utils::integration_test_guard integration;
     if (!integration.cluster_version().supports_enhanced_durability()) {
@@ -80,7 +80,7 @@ TEST_CASE("integration: durable operations", "[integration]")
     }
 }
 
-TEST_CASE("integration: legacy durability persist to active and replicate to one", "[integration]")
+TEST_CASE("integration: legacy durability persist to active and replicate to one")
 {
     test::utils::integration_test_guard integration;
     if (integration.number_of_replicas() == 0) {
@@ -122,7 +122,7 @@ TEST_CASE("integration: legacy durability persist to active and replicate to one
     }
 }
 
-TEST_CASE("integration: low level legacy durability impossible if number of nodes too high", "[integration]")
+TEST_CASE("integration: low level legacy durability impossible if number of nodes too high")
 {
     test::utils::integration_test_guard integration;
 
@@ -157,7 +157,7 @@ TEST_CASE("integration: low level legacy durability impossible if number of node
     }
 }
 
-TEST_CASE("integration: low level legacy durability persist to active and replicate to one", "[integration]")
+TEST_CASE("integration: low level legacy durability persist to active and replicate to one")
 {
     test::utils::integration_test_guard integration;
 

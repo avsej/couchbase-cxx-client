@@ -19,7 +19,7 @@
 
 #include "core/utils/binary.hxx"
 
-TEST_CASE("integration: append", "[integration]")
+TEST_CASE("integration: append")
 {
     test::utils::integration_test_guard integration;
 
@@ -49,7 +49,7 @@ TEST_CASE("integration: append", "[integration]")
     }
 }
 
-TEST_CASE("integration: prepend", "[integration]")
+TEST_CASE("integration: prepend")
 {
     test::utils::integration_test_guard integration;
 
@@ -79,21 +79,21 @@ TEST_CASE("integration: prepend", "[integration]")
     }
 }
 
-TEST_CASE("integration: binary ops on missing document", "[integration]")
+TEST_CASE("integration: binary ops on missing document")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
 
     couchbase::core::document_id id{ integration.ctx.bucket, "_default", "_default", "missing_key" };
 
-    SECTION("append")
+    SUBCASE("append")
     {
         couchbase::core::operations::append_request req{ id, couchbase::core::utils::to_binary("") };
         auto resp = test::utils::execute(integration.cluster, req);
         REQUIRE(resp.ctx.ec() == couchbase::errc::key_value::document_not_found);
     }
 
-    SECTION("prepend")
+    SUBCASE("prepend")
     {
         couchbase::core::operations::prepend_request req{ id, couchbase::core::utils::to_binary("") };
         auto resp = test::utils::execute(integration.cluster, req);

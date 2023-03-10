@@ -27,7 +27,7 @@
 #include <couchbase/cluster.hxx>
 #include <couchbase/lookup_in_specs.hxx>
 
-TEST_CASE("integration: trivial non-data query", "[integration]")
+TEST_CASE("integration: trivial non-data query")
 {
     test::utils::integration_test_guard integration;
 
@@ -46,7 +46,7 @@ TEST_CASE("integration: trivial non-data query", "[integration]")
     }
 }
 
-TEST_CASE("integration: query with handler capturing non-copyable object", "[integration]")
+TEST_CASE("integration: query with handler capturing non-copyable object")
 {
     test::utils::integration_test_guard integration;
 
@@ -75,7 +75,7 @@ TEST_CASE("integration: query with handler capturing non-copyable object", "[int
     }
 }
 
-TEST_CASE("integration: query on a collection", "[integration]")
+TEST_CASE("integration: query on a collection")
 {
     test::utils::integration_test_guard integration;
 
@@ -142,7 +142,7 @@ TEST_CASE("integration: query on a collection", "[integration]")
         mutation_token = resp.token;
     }
 
-    SECTION("correct scope and collection")
+    SUBCASE("correct scope and collection")
     {
         couchbase::core::operations::query_request req{ fmt::format(
           R"(SELECT a, b FROM {} WHERE META().id = "{}")", collection_name, key) };
@@ -154,7 +154,7 @@ TEST_CASE("integration: query on a collection", "[integration]")
         REQUIRE(value == couchbase::core::utils::json::parse(resp.rows[0]));
     }
 
-    SECTION("missing scope")
+    SUBCASE("missing scope")
     {
         couchbase::core::operations::query_request req{ fmt::format(
           R"(SELECT a, b FROM {} WHERE META().id = "{}")", collection_name, key) };
@@ -164,7 +164,7 @@ TEST_CASE("integration: query on a collection", "[integration]")
         REQUIRE(resp.ctx.ec == couchbase::errc::query::index_failure);
     }
 
-    SECTION("missing collection")
+    SUBCASE("missing collection")
     {
         couchbase::core::operations::query_request req{ fmt::format(R"(SELECT a, b FROM missing_collection WHERE META().id = "{}")", key) };
         req.query_context = fmt::format("default:`{}`.`{}`", integration.ctx.bucket, scope_name);
@@ -173,7 +173,7 @@ TEST_CASE("integration: query on a collection", "[integration]")
         REQUIRE(resp.ctx.ec == couchbase::errc::query::index_failure);
     }
 
-    SECTION("prepared")
+    SUBCASE("prepared")
     {
         couchbase::core::operations::query_request req{ fmt::format(
           R"(SELECT a, b FROM {} WHERE META().id = "{}")", collection_name, key) };
@@ -193,7 +193,7 @@ TEST_CASE("integration: query on a collection", "[integration]")
     }
 }
 
-TEST_CASE("integration: read only with no results", "[integration]")
+TEST_CASE("integration: read only with no results")
 {
     test::utils::integration_test_guard integration;
 
@@ -213,7 +213,7 @@ TEST_CASE("integration: read only with no results", "[integration]")
     }
 }
 
-TEST_CASE("integration: invalid query", "[integration]")
+TEST_CASE("integration: invalid query")
 {
     test::utils::integration_test_guard integration;
 
@@ -232,7 +232,7 @@ TEST_CASE("integration: invalid query", "[integration]")
     }
 }
 
-TEST_CASE("integration: preserve expiry for mutation query", "[integration]")
+TEST_CASE("integration: preserve expiry for mutation query")
 {
     test::utils::integration_test_guard integration;
 
@@ -297,7 +297,7 @@ TEST_CASE("integration: preserve expiry for mutation query", "[integration]")
     }
 }
 
-TEST_CASE("integration: streaming query results", "[integration]")
+TEST_CASE("integration: streaming query results")
 {
     test::utils::integration_test_guard integration;
 
@@ -323,7 +323,7 @@ TEST_CASE("integration: streaming query results", "[integration]")
     }
 }
 
-TEST_CASE("integration: streaming query results with stop in the middle", "[integration]")
+TEST_CASE("integration: streaming query results with stop in the middle")
 {
     test::utils::integration_test_guard integration;
 
@@ -356,7 +356,7 @@ TEST_CASE("integration: streaming query results with stop in the middle", "[inte
     }
 }
 
-TEST_CASE("integration: streaming analytics results", "[integration]")
+TEST_CASE("integration: streaming analytics results")
 {
     test::utils::integration_test_guard integration;
 
@@ -389,7 +389,7 @@ TEST_CASE("integration: streaming analytics results", "[integration]")
     }
 }
 
-TEST_CASE("integration: sticking query to the service node", "[integration]")
+TEST_CASE("integration: sticking query to the service node")
 {
     test::utils::integration_test_guard integration;
 
@@ -489,7 +489,7 @@ TEST_CASE("analytics create dataset")
     REQUIRE_SUCCESS(resp.ctx.ec);
 }
 
-TEST_CASE("integration: prepared query", "[integration]")
+TEST_CASE("integration: prepared query")
 {
     test::utils::integration_test_guard integration;
 
@@ -527,7 +527,7 @@ TEST_CASE("integration: prepared query", "[integration]")
     }
 }
 
-TEST_CASE("integration: query with public API", "[integration]")
+TEST_CASE("integration: query with public API")
 {
     test::utils::integration_test_guard integration;
 
@@ -568,7 +568,7 @@ TEST_CASE("integration: query with public API", "[integration]")
     }
 }
 
-TEST_CASE("integration: query from scope with public API", "[integration]")
+TEST_CASE("integration: query from scope with public API")
 {
     test::utils::integration_test_guard integration;
 
@@ -615,7 +615,7 @@ TEST_CASE("integration: query from scope with public API", "[integration]")
         REQUIRE_SUCCESS(resp.ctx.ec());
     }
 
-    SECTION("correct scope and collection")
+    SUBCASE("correct scope and collection")
     {
         auto [ctx, resp] = cluster.bucket(integration.ctx.bucket)
                              .scope(scope_name)
@@ -626,7 +626,7 @@ TEST_CASE("integration: query from scope with public API", "[integration]")
         REQUIRE(rows.size() == 1);
         REQUIRE(rows[0][collection_name] == value);
     }
-    SECTION("missing scope")
+    SUBCASE("missing scope")
     {
         auto [ctx, resp] = cluster.bucket(integration.ctx.bucket)
                              .scope("idontexist")
@@ -634,7 +634,7 @@ TEST_CASE("integration: query from scope with public API", "[integration]")
                              .get();
         REQUIRE(ctx.ec() == couchbase::errc::query::index_failure);
     }
-    SECTION("missing collection")
+    SUBCASE("missing collection")
     {
         auto [ctx, resp] = cluster.bucket(integration.ctx.bucket)
                              .scope(scope_name)
@@ -642,7 +642,7 @@ TEST_CASE("integration: query from scope with public API", "[integration]")
                              .get();
         REQUIRE(ctx.ec() == couchbase::errc::query::index_failure);
     }
-    SECTION("prepared")
+    SUBCASE("prepared")
     {
         auto [ctx, resp] =
           cluster.bucket(integration.ctx.bucket)

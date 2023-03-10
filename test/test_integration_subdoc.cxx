@@ -211,7 +211,7 @@ assert_single_mutate_error(couchbase::core::operations::mutate_in_response resp,
     REQUIRE(resp.fields[0].ec == expected_ec);
 }
 
-TEST_CASE("integration: subdoc get & exists", "[integration]")
+TEST_CASE("integration: subdoc get & exists")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -224,37 +224,37 @@ TEST_CASE("integration: subdoc get & exists", "[integration]")
         REQUIRE_SUCCESS(resp.ctx.ec());
     }
 
-    SECTION("dict get")
+    SUBCASE("dict get")
     {
         assert_single_lookup_success(integration, id, couchbase::lookup_in_specs::get("dictkey"), R"("dictval")");
     }
 
-    SECTION("dict exists")
+    SUBCASE("dict exists")
     {
         assert_single_lookup_success(integration, id, couchbase::lookup_in_specs::exists("dictkey"), "true");
     }
 
-    SECTION("array get")
+    SUBCASE("array get")
     {
         assert_single_lookup_success(integration, id, couchbase::lookup_in_specs::get("array"), "[1,2,3,4,[10,20,30,[100,200,300]]]");
     }
 
-    SECTION("array exists")
+    SUBCASE("array exists")
     {
         assert_single_lookup_success(integration, id, couchbase::lookup_in_specs::exists("array"), "true");
     }
 
-    SECTION("array index get")
+    SUBCASE("array index get")
     {
         assert_single_lookup_success(integration, id, couchbase::lookup_in_specs::get("array[0]"), "1");
     }
 
-    SECTION("array index exists")
+    SUBCASE("array index exists")
     {
         assert_single_lookup_success(integration, id, couchbase::lookup_in_specs::exists("array[0]"), "true");
     }
 
-    SECTION("non existent path get")
+    SUBCASE("non existent path get")
     {
         assert_single_lookup_error(integration,
                                    id,
@@ -263,7 +263,7 @@ TEST_CASE("integration: subdoc get & exists", "[integration]")
                                    couchbase::errc::key_value::path_not_found);
     }
 
-    SECTION("non existent path exists")
+    SUBCASE("non existent path exists")
     {
         assert_single_lookup_error(integration,
                                    id,
@@ -273,11 +273,11 @@ TEST_CASE("integration: subdoc get & exists", "[integration]")
                                    "false");
     }
 
-    SECTION("non existent doc")
+    SUBCASE("non existent doc")
     {
         couchbase::core::document_id missing_id{ integration.ctx.bucket, "_default", "_default", "missing_key" };
 
-        SECTION("non existent doc get")
+        SUBCASE("non existent doc get")
         {
             couchbase::core::operations::lookup_in_request req{ missing_id };
             req.specs =
@@ -290,7 +290,7 @@ TEST_CASE("integration: subdoc get & exists", "[integration]")
             REQUIRE(resp.fields.empty());
         }
 
-        SECTION("non existent doc exists")
+        SUBCASE("non existent doc exists")
         {
             couchbase::core::operations::lookup_in_request req{ missing_id };
             req.specs =
@@ -304,7 +304,7 @@ TEST_CASE("integration: subdoc get & exists", "[integration]")
         }
     }
 
-    SECTION("non json")
+    SUBCASE("non json")
     {
         couchbase::core::document_id non_json_id{ integration.ctx.bucket, "_default", "_default", test::utils::uniq_id("non_json") };
         auto non_json_doc = couchbase::core::utils::to_binary("string");
@@ -315,7 +315,7 @@ TEST_CASE("integration: subdoc get & exists", "[integration]")
             REQUIRE_SUCCESS(resp.ctx.ec());
         }
 
-        SECTION("non json get")
+        SUBCASE("non json get")
         {
             if (integration.cluster_version().is_mock()) {
                 SKIP("GOCAVES does not handle subdocument operations for non-JSON documents. See "
@@ -328,7 +328,7 @@ TEST_CASE("integration: subdoc get & exists", "[integration]")
                                        couchbase::errc::key_value::document_not_json);
         }
 
-        SECTION("non json exists")
+        SUBCASE("non json exists")
         {
             if (integration.cluster_version().is_mock()) {
                 SKIP("GOCAVES does not handle subdocument operations for non-JSON documents. See "
@@ -342,7 +342,7 @@ TEST_CASE("integration: subdoc get & exists", "[integration]")
         }
     }
 
-    SECTION("invalid path")
+    SUBCASE("invalid path")
     {
         std::vector<std::string> invalid_paths = { "invalid..path", "invalid[-2]" };
         for (const auto& path : invalid_paths) {
@@ -362,17 +362,17 @@ TEST_CASE("integration: subdoc get & exists", "[integration]")
         }
     }
 
-    SECTION("negative paths")
+    SUBCASE("negative paths")
     {
         assert_single_lookup_success(integration, id, couchbase::lookup_in_specs::get("array[-1][-1][-1]"), "300");
     }
 
-    SECTION("nested arrays")
+    SUBCASE("nested arrays")
     {
         assert_single_lookup_success(integration, id, couchbase::lookup_in_specs::get("array[4][3][2]"), "300");
     }
 
-    SECTION("path mismatch")
+    SUBCASE("path mismatch")
     {
         assert_single_lookup_error(integration,
                                    id,
@@ -382,7 +382,7 @@ TEST_CASE("integration: subdoc get & exists", "[integration]")
     }
 }
 
-TEST_CASE("integration: subdoc store", "[integration]")
+TEST_CASE("integration: subdoc store")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -398,7 +398,7 @@ TEST_CASE("integration: subdoc store", "[integration]")
         cas = resp.cas;
     }
 
-    SECTION("dict add")
+    SUBCASE("dict add")
     {
         std::string path{ "newpath" };
         std::string value{ "123" };
@@ -428,7 +428,7 @@ TEST_CASE("integration: subdoc store", "[integration]")
         assert_single_lookup_success(integration, id, couchbase::lookup_in_specs::get(path), value);
     }
 
-    SECTION("bad cas")
+    SUBCASE("bad cas")
     {
         couchbase::core::operations::mutate_in_request req{ id };
         req.cas = couchbase::cas{ cas.value() + 1 };
@@ -437,7 +437,7 @@ TEST_CASE("integration: subdoc store", "[integration]")
         REQUIRE(resp.ctx.ec() == couchbase::errc::common::cas_mismatch);
     }
 
-    SECTION("compound value")
+    SUBCASE("compound value")
     {
 
         std::string path{ "dict" };
@@ -451,7 +451,7 @@ TEST_CASE("integration: subdoc store", "[integration]")
         assert_single_lookup_success(integration, id, couchbase::lookup_in_specs::get("dict.key"), R"("value")");
     }
 
-    SECTION("non json")
+    SUBCASE("non json")
     {
         if (integration.cluster_version().is_mock()) {
             SKIP("GOCAVES does not handle subdocument operations for non-JSON documents. See "
@@ -466,7 +466,7 @@ TEST_CASE("integration: subdoc store", "[integration]")
           resp, path, couchbase::key_value_status_code::subdoc_value_cannot_insert, couchbase::errc::key_value::value_invalid);
     }
 
-    SECTION("unknown parent")
+    SUBCASE("unknown parent")
     {
         std::string path{ "parent.with.missing.children" };
         couchbase::core::operations::mutate_in_request req{ id };
@@ -476,7 +476,7 @@ TEST_CASE("integration: subdoc store", "[integration]")
           resp, path, couchbase::key_value_status_code::subdoc_path_not_found, couchbase::errc::key_value::path_not_found);
     }
 
-    SECTION("create parents")
+    SUBCASE("create parents")
     {
         std::string path{ "parent.with.missing.children" };
         couchbase::core::operations::mutate_in_request req{ id };
@@ -486,9 +486,9 @@ TEST_CASE("integration: subdoc store", "[integration]")
         assert_single_lookup_success(integration, id, couchbase::lookup_in_specs::get(path), "null");
     }
 
-    SECTION("replace")
+    SUBCASE("replace")
     {
-        SECTION("existing path")
+        SUBCASE("existing path")
         {
             std::string path{ "dictkey" };
             couchbase::core::operations::mutate_in_request req{ id };
@@ -498,7 +498,7 @@ TEST_CASE("integration: subdoc store", "[integration]")
             assert_single_lookup_success(integration, id, couchbase::lookup_in_specs::get(path), "123");
         }
 
-        SECTION("missing path")
+        SUBCASE("missing path")
         {
             std::string path = "not-exists";
             std::string value = "123";
@@ -509,7 +509,7 @@ TEST_CASE("integration: subdoc store", "[integration]")
               resp, path, couchbase::key_value_status_code::subdoc_path_not_found, couchbase::errc::key_value::path_not_found);
         }
 
-        SECTION("array element")
+        SUBCASE("array element")
         {
             std::string path{ "array[1]" };
             std::string value{ "true" };
@@ -520,7 +520,7 @@ TEST_CASE("integration: subdoc store", "[integration]")
             assert_single_lookup_success(integration, id, couchbase::lookup_in_specs::get(path), value);
         }
 
-        SECTION("root")
+        SUBCASE("root")
         {
             std::string path;
             tao::json::value value{
@@ -534,7 +534,7 @@ TEST_CASE("integration: subdoc store", "[integration]")
     }
 }
 
-TEST_CASE("integration: subdoc mutate in store semantics", "[integration]")
+TEST_CASE("integration: subdoc mutate in store semantics")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -548,7 +548,7 @@ TEST_CASE("integration: subdoc mutate in store semantics", "[integration]")
     assert_single_lookup_success(integration, id, couchbase::lookup_in_specs::get("pth"), "123");
 }
 
-TEST_CASE("integration: subdoc unique", "[integration]")
+TEST_CASE("integration: subdoc unique")
 {
     test::utils::integration_test_guard integration;
 
@@ -609,7 +609,7 @@ TEST_CASE("integration: subdoc unique", "[integration]")
     }
 }
 
-TEST_CASE("integration: subdoc counter", "[integration]")
+TEST_CASE("integration: subdoc counter")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -625,7 +625,7 @@ TEST_CASE("integration: subdoc counter", "[integration]")
         REQUIRE_SUCCESS(resp.ctx.ec());
     }
 
-    SECTION("simple increment")
+    SUBCASE("simple increment")
     {
         {
             couchbase::core::operations::mutate_in_request req{ id };
@@ -642,7 +642,7 @@ TEST_CASE("integration: subdoc counter", "[integration]")
         }
     }
 
-    SECTION("max value")
+    SUBCASE("max value")
     {
         if (integration.cluster_version().is_mock()) {
             SKIP("GOCAVES incorrectly handles limits for subdoc counters. See https://github.com/couchbaselabs/gocaves/issues/104");
@@ -664,7 +664,7 @@ TEST_CASE("integration: subdoc counter", "[integration]")
         }
     }
 
-    SECTION("invalid delta")
+    SUBCASE("invalid delta")
     {
         if (integration.cluster_version().is_mock()) {
             SKIP("GOCAVES incorrectly handles zero delta for subdoc counters. See https://github.com/couchbaselabs/gocaves/issues/105");
@@ -676,7 +676,7 @@ TEST_CASE("integration: subdoc counter", "[integration]")
           resp, "counter", couchbase::key_value_status_code::subdoc_delta_invalid, couchbase::errc::key_value::delta_invalid);
     }
 
-    SECTION("increase number already too big")
+    SUBCASE("increase number already too big")
     {
         if (integration.cluster_version().is_mock()) {
             SKIP("GOCAVES incorrectly handles big values for subdoc counters. See https://github.com/couchbaselabs/gocaves/issues/106");
@@ -698,7 +698,7 @@ TEST_CASE("integration: subdoc counter", "[integration]")
         }
     }
 
-    SECTION("non-numeric existing value")
+    SUBCASE("non-numeric existing value")
     {
         couchbase::core::operations::mutate_in_request req{ id };
         req.specs = couchbase::mutate_in_specs{ couchbase::mutate_in_specs::increment("dictkey", 1) }.specs();
@@ -707,7 +707,7 @@ TEST_CASE("integration: subdoc counter", "[integration]")
           resp, "dictkey", couchbase::key_value_status_code::subdoc_path_mismatch, couchbase::errc::key_value::path_mismatch);
     }
 
-    SECTION("simple decrement")
+    SUBCASE("simple decrement")
     {
         {
             couchbase::core::operations::mutate_in_request req{ id };
@@ -725,7 +725,7 @@ TEST_CASE("integration: subdoc counter", "[integration]")
     }
 }
 
-TEST_CASE("integration: subdoc multi lookup", "[integration]")
+TEST_CASE("integration: subdoc multi lookup")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -738,7 +738,7 @@ TEST_CASE("integration: subdoc multi lookup", "[integration]")
         REQUIRE_SUCCESS(resp.ctx.ec());
     }
 
-    SECTION("simple multi lookup")
+    SUBCASE("simple multi lookup")
     {
         couchbase::core::operations::lookup_in_request req{ id };
         req.specs =
@@ -767,7 +767,7 @@ TEST_CASE("integration: subdoc multi lookup", "[integration]")
         REQUIRE(resp.fields[3].status == couchbase::key_value_status_code::success);
     }
 
-    SECTION("mismatched type and opcode")
+    SUBCASE("mismatched type and opcode")
     {
         couchbase::core::operations::lookup_in_request req{ id };
         req.specs =
@@ -784,7 +784,7 @@ TEST_CASE("integration: subdoc multi lookup", "[integration]")
         }
     }
 
-    SECTION("missing key")
+    SUBCASE("missing key")
     {
         couchbase::core::document_id missing_id{ integration.ctx.bucket, "_default", "_default", "missing_key" };
         couchbase::core::operations::lookup_in_request req{ missing_id };
@@ -800,7 +800,7 @@ TEST_CASE("integration: subdoc multi lookup", "[integration]")
     }
 }
 
-TEST_CASE("integration: subdoc multi mutation", "[integration]")
+TEST_CASE("integration: subdoc multi mutation")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -816,7 +816,7 @@ TEST_CASE("integration: subdoc multi mutation", "[integration]")
         REQUIRE_SUCCESS(resp.ctx.ec());
     }
 
-    SECTION("simple multi mutation")
+    SUBCASE("simple multi mutation")
     {
         couchbase::core::operations::mutate_in_request req{ id };
 
@@ -837,7 +837,7 @@ TEST_CASE("integration: subdoc multi mutation", "[integration]")
         assert_single_lookup_success(integration, id, couchbase::lookup_in_specs::get("counter"), "42");
     }
 
-    SECTION("replace with errors")
+    SUBCASE("replace with errors")
     {
         if (integration.cluster_version().is_mock()) {
             SKIP("GOCAVES incorrectly uses error indexes for subdoc mutations. See https://github.com/couchbaselabs/gocaves/issues/107");
@@ -885,7 +885,7 @@ TEST_CASE("integration: subdoc expiry")
     }
 }
 
-TEST_CASE("integration: subdoc get count", "[integration]")
+TEST_CASE("integration: subdoc get count")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -898,12 +898,12 @@ TEST_CASE("integration: subdoc get count", "[integration]")
         REQUIRE_SUCCESS(resp.ctx.ec());
     }
 
-    SECTION("top level get count")
+    SUBCASE("top level get count")
     {
         assert_single_lookup_success(integration, id, couchbase::lookup_in_specs::count(""), "2");
     }
 
-    SECTION("multi")
+    SUBCASE("multi")
     {
         couchbase::core::operations::lookup_in_request req{ id };
         req.specs =
@@ -924,7 +924,7 @@ TEST_CASE("integration: subdoc get count", "[integration]")
     }
 }
 
-TEST_CASE("integration: subdoc insert error consistency", "[integration]")
+TEST_CASE("integration: subdoc insert error consistency")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -939,7 +939,7 @@ TEST_CASE("integration: subdoc insert error consistency", "[integration]")
     }
 
     // try to upsert path "foo"=42 with INSERT semantics and zero CAS, expected code is DOCUMENT_EXISTS
-    SECTION("insert semantics")
+    SUBCASE("insert semantics")
     {
         couchbase::core::operations::mutate_in_request req{ id };
         req.specs = couchbase::mutate_in_specs{ couchbase::mutate_in_specs::upsert("foo", 42) }.specs();
@@ -949,7 +949,7 @@ TEST_CASE("integration: subdoc insert error consistency", "[integration]")
     }
 
     // subdocument operation with UPSERT semantics rejects CAS earlier
-    SECTION("upsert semantics invalid cas")
+    SUBCASE("upsert semantics invalid cas")
     {
         couchbase::core::operations::mutate_in_request req{ id };
         req.specs = couchbase::mutate_in_specs{ couchbase::mutate_in_specs::upsert("foo", 42) }.specs();
@@ -960,7 +960,7 @@ TEST_CASE("integration: subdoc insert error consistency", "[integration]")
     }
 
     // try to upsert path "foo"=42 with default (REPLACE) semantics and invalid CAS, expected code is CAS_MISMATCH
-    SECTION("replace semantics invalid cas")
+    SUBCASE("replace semantics invalid cas")
     {
         couchbase::core::operations::mutate_in_request req{ id };
         req.specs = couchbase::mutate_in_specs{ couchbase::mutate_in_specs::upsert("foo", 42) }.specs();
@@ -970,7 +970,7 @@ TEST_CASE("integration: subdoc insert error consistency", "[integration]")
     }
 }
 
-TEST_CASE("integration: subdoc remove with empty path", "[integration]")
+TEST_CASE("integration: subdoc remove with empty path")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -1018,7 +1018,7 @@ TEST_CASE("integration: subdoc remove with empty path", "[integration]")
     }
 }
 
-TEST_CASE("integration: subdoc top level array", "[integration]")
+TEST_CASE("integration: subdoc top level array")
 {
     test::utils::integration_test_guard integration;
     test::utils::open_bucket(integration.cluster, integration.ctx.bucket);
@@ -1094,7 +1094,7 @@ TEST_CASE("integration: subdoc top level array", "[integration]")
     }
 }
 
-TEST_CASE("integration: subdoc all replica reads", "[integration]")
+TEST_CASE("integration: subdoc all replica reads")
 {
 
     test::utils::integration_test_guard integration;
@@ -1332,7 +1332,7 @@ TEST_CASE("integration: subdoc all replica reads", "[integration]")
     }
 }
 
-TEST_CASE("integration: subdoc any replica reads", "[integration]")
+TEST_CASE("integration: subdoc any replica reads")
 {
     test::utils::integration_test_guard integration;
 
@@ -1590,7 +1590,7 @@ TEST_CASE("integration: subdoc any replica reads", "[integration]")
     }
 }
 
-TEST_CASE("integration: public API lookup in per-spec errors", "[integration]")
+TEST_CASE("integration: public API lookup in per-spec errors")
 {
     test::utils::integration_test_guard integration;
 

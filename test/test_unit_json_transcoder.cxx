@@ -23,9 +23,7 @@
 
 #include <tao/json.hpp>
 
-using Catch::Approx;
-
-TEST_CASE("unit: default_json_transcoder encodes primitives", "[unit]")
+TEST_CASE("unit: default_json_transcoder encodes primitives")
 {
     {
         /*
@@ -75,7 +73,7 @@ TEST_CASE("unit: default_json_transcoder encodes primitives", "[unit]")
     }
 }
 
-TEST_CASE("unit: default_json_transcoder decodes primitives", "[unit]")
+TEST_CASE("unit: default_json_transcoder decodes primitives")
 {
     {
         /*
@@ -155,7 +153,7 @@ struct tao::json::traits<profile> {
     }
 };
 
-TEST_CASE("unit: default_json_transcoder encodes user data", "[unit]")
+TEST_CASE("unit: default_json_transcoder encodes user data")
 {
     profile albert{ "this_guy_again", "Albert Einstein", 1879 };
 
@@ -182,7 +180,7 @@ TEST_CASE("unit: default_json_transcoder encodes user data", "[unit]")
     REQUIRE(encoded.flags == couchbase::codec::codec_flags::json_common_flags);
 }
 
-TEST_CASE("unit: default_json_transcoder decodes user data", "[unit]")
+TEST_CASE("unit: default_json_transcoder decodes user data")
 {
     /*
      * echo -n '{"birth_year":1879,"full_name":"Albert Einstein", "username":"this_guy_again"}' \

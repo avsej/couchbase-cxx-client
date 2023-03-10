@@ -65,7 +65,7 @@ simple_txn_wrapper(transaction_context& tx, Handler&& handler)
     throw std::runtime_error("exceeded max attempts and didn't timeout!");
 }
 
-TEST_CASE("transactions: can do simple transaction with transaction wrapper", "[transactions]")
+TEST_CASE("transactions: can do simple transaction with transaction wrapper")
 {
     test::utils::integration_test_guard integration;
 
@@ -105,7 +105,7 @@ TEST_CASE("transactions: can do simple transaction with transaction wrapper", "[
     }
 }
 
-TEST_CASE("transactions: can do simple transaction with finalize", "[transactions]")
+TEST_CASE("transactions: can do simple transaction with finalize")
 {
     test::utils::integration_test_guard integration;
 
@@ -153,7 +153,7 @@ TEST_CASE("transactions: can do simple transaction with finalize", "[transaction
     }
 }
 
-TEST_CASE("transactions: can do simple transaction explicit commit", "[transactions]")
+TEST_CASE("transactions: can do simple transaction explicit commit")
 {
     test::utils::integration_test_guard integration;
 
@@ -199,7 +199,7 @@ TEST_CASE("transactions: can do simple transaction explicit commit", "[transacti
     }
 }
 
-TEST_CASE("transactions: can do rollback simple transaction", "[transactions]")
+TEST_CASE("transactions: can do rollback simple transaction")
 {
     test::utils::integration_test_guard integration;
 
@@ -242,7 +242,7 @@ TEST_CASE("transactions: can do rollback simple transaction", "[transactions]")
     REQUIRE_NOTHROW(tx.existing_error());
 }
 
-TEST_CASE("transactions: can get insert errors", "[transactions]")
+TEST_CASE("transactions: can get insert errors")
 {
     test::utils::integration_test_guard integration;
 
@@ -282,7 +282,7 @@ TEST_CASE("transactions: can get insert errors", "[transactions]")
     REQUIRE_NOTHROW(tx.existing_error());
 }
 
-TEST_CASE("transactions: can get remove errors", "[transactions]")
+TEST_CASE("transactions: can get remove errors")
 {
     test::utils::integration_test_guard integration;
 
@@ -324,7 +324,7 @@ TEST_CASE("transactions: can get remove errors", "[transactions]")
     CHECK_THROWS_AS(tx.existing_error(), transaction_operation_failed);
 }
 
-TEST_CASE("transactions: can get replace errors", "[transactions]")
+TEST_CASE("transactions: can get replace errors")
 {
     test::utils::integration_test_guard integration;
 
@@ -370,7 +370,7 @@ TEST_CASE("transactions: can get replace errors", "[transactions]")
     CHECK_THROWS_AS(tx.existing_error(), transaction_operation_failed);
 }
 
-TEST_CASE("transactions: RYOW get after insert", "[transactions]")
+TEST_CASE("transactions: RYOW get after insert")
 {
     test::utils::integration_test_guard integration;
 
@@ -403,7 +403,7 @@ TEST_CASE("transactions: RYOW get after insert", "[transactions]")
     REQUIRE_NOTHROW(tx.existing_error());
 }
 
-TEST_CASE("transactions: can get get errors", "[transactions]")
+TEST_CASE("transactions: can get get errors")
 {
     test::utils::integration_test_guard integration;
 
@@ -432,7 +432,7 @@ TEST_CASE("transactions: can get get errors", "[transactions]")
     CHECK_THROWS_AS(tx.existing_error(), transaction_operation_failed);
 }
 
-TEST_CASE("transactions: can do query", "[transactions]")
+TEST_CASE("transactions: can do query")
 {
     test::utils::integration_test_guard integration;
 
@@ -469,7 +469,7 @@ TEST_CASE("transactions: can do query", "[transactions]")
     REQUIRE_NOTHROW(tx.existing_error());
 }
 
-TEST_CASE("transactions: can see some query errors but no transactions failed", "[transactions]")
+TEST_CASE("transactions: can see some query errors but no transactions failed")
 {
     test::utils::integration_test_guard integration;
 
@@ -510,7 +510,7 @@ TEST_CASE("transactions: can see some query errors but no transactions failed", 
     REQUIRE_NOTHROW(tx.existing_error());
 }
 
-TEST_CASE("transactions: can set per transaction config", "[transactions]")
+TEST_CASE("transactions: can set per transaction config")
 {
     test::utils::integration_test_guard integration;
 
@@ -532,7 +532,7 @@ TEST_CASE("transactions: can set per transaction config", "[transactions]")
     REQUIRE(tx.config().query_config.scan_consistency == per_txn_cfg.scan_consistency());
 }
 
-TEST_CASE("transactions: can not per transactions config", "[transactions]")
+TEST_CASE("transactions: can not per transactions config")
 {
     test::utils::integration_test_guard integration;
 
