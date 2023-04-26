@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "topology/configuration.hxx"
+#include "topology/configuration_fwd.hxx"
 
 namespace couchbase::core
 {
@@ -26,6 +26,6 @@ class config_listener
   public:
     virtual ~config_listener() = default;
 
-    virtual void update_config(topology::configuration config) = 0;
+    virtual void update_config(const topology::configuration &config) = 0;
 };
 } // namespace couchbase::core

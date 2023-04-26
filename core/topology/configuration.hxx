@@ -17,61 +17,25 @@
 
 #pragma once
 
+#include "configuration_fwd.hxx"
+
 #include "capabilities.hxx"
 #include "core/platform/uuid.h"
-#include "core/service_type.hxx"
 #include "core/utils/crc32.hxx"
+#include "node.hxx"
 
-#include <fmt/core.h>
-#include <map>
 #include <optional>
 #include <set>
-#include <string>
-#include <vector>
 
 namespace couchbase::core::topology
 {
+enum class node_locator_type {
+    unknown,
+    vbucket,
+    ketama,
+};
+
 struct configuration {
-    enum class node_locator_type {
-        unknown,
-        vbucket,
-        ketama,
-    };
-
-    struct port_map {
-        std::optional<std::uint16_t> key_value{};
-        std::optional<std::uint16_t> management{};
-        std::optional<std::uint16_t> analytics{};
-        std::optional<std::uint16_t> search{};
-        std::optional<std::uint16_t> views{};
-        std::optional<std::uint16_t> query{};
-        std::optional<std::uint16_t> eventing{};
-    };
-
-    struct alternate_address {
-        std::string name{};
-        std::string hostname{};
-        port_map services_plain{};
-        port_map services_tls{};
-    };
-
-    struct node {
-        bool this_node{ false };
-        size_t index{};
-        std::string hostname{};
-        port_map services_plain{};
-        port_map services_tls{};
-        std::map<std::string, alternate_address> alt{};
-
-        [[nodiscard]] std::uint16_t port_or(service_type type, bool is_tls, std::uint16_t default_value) const;
-
-        [[nodiscard]] std::uint16_t port_or(const std::string& network, service_type type, bool is_tls, std::uint16_t default_value) const;
-
-        [[nodiscard]] const std::string& hostname_for(const std::string& network) const;
-
-        [[nodiscard]] std::optional<std::string> endpoint(const std::string& network, service_type type, bool is_tls) const;
-    };
-
     [[nodiscard]] std::string select_network(const std::string& bootstrap_hostname) const;
 
     using vbucket_map = typename std::vector<std::vector<std::int16_t>>;
@@ -122,23 +86,8 @@ struct configuration {
     [[nodiscard]] std::size_t index_for_this_node() const;
     [[nodiscard]] bool has_node_with_hostname(const std::string& hostname) const;
 
-    template<typename Key>
-    std::pair<std::uint16_t, std::optional<std::size_t>> map_key(const Key& key, std::size_t index)
-    {
-        if (!vbmap.has_value()) {
-            return { 0, {} };
-        }
-        std::uint32_t crc = utils::hash_crc32(key.data(), key.size());
-        auto vbucket = static_cast<std::uint16_t>(crc % vbmap->size());
-        return { vbucket, server_by_vbucket(vbucket, index) };
-    }
+    std::pair<std::uint16_t, std::optional<std::size_t>> map_key(std::string_view key, std::size_t index);
 
     std::optional<std::size_t> server_by_vbucket(std::uint16_t vbucket, std::size_t index);
 };
-
-configuration
-make_blank_configuration(const std::string& hostname, std::uint16_t plain_port, std::uint16_t tls_port);
-
-configuration
-make_blank_configuration(const std::vector<std::pair<std::string, std::string>>& endpoints, bool use_tls, bool force = false);
 } // namespace couchbase::core::topology

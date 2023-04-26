@@ -17,23 +17,19 @@
 
 #include "bucket.hxx"
 
-#include "collection_id_cache_entry.hxx"
 #include "core/mcbp/big_endian.hxx"
 #include "core/mcbp/codec.hxx"
-#include "dispatcher.hxx"
 #include "impl/bootstrap_state_listener.hxx"
-#include "mcbp/completion_token.hxx"
 #include "mcbp/operation_queue.hxx"
 #include "mcbp/queue_request.hxx"
 #include "mcbp/queue_response.hxx"
 #include "origin.hxx"
 #include "ping_collector.hxx"
 #include "retry_orchestrator.hxx"
+#include "topology/configuration.hxx"
 
 #include <couchbase/metrics/meter.hxx>
 #include <couchbase/tracing/request_tracer.hxx>
-
-#include <fmt/chrono.h>
 
 #include <mutex>
 #include <queue>
@@ -41,28 +37,6 @@
 
 namespace couchbase::core
 {
-/**
- * copies nodes from rhs that are not in lhs to output vector
- */
-static void
-diff_nodes(const std::vector<topology::configuration::node>& lhs,
-           const std::vector<topology::configuration::node>& rhs,
-           std::vector<topology::configuration::node>& output)
-{
-    for (const auto& re : rhs) {
-        bool known = false;
-        for (const auto& le : lhs) {
-            if (le.hostname == re.hostname && le.services_plain.management.value_or(0) == re.services_plain.management.value_or(0)) {
-                known = true;
-                break;
-            }
-        }
-        if (!known) {
-            output.push_back(re);
-        }
-    }
-}
-
 class bucket_impl
   : public std::enable_shared_from_this<bucket_impl>
   , public config_listener
@@ -488,11 +462,11 @@ class bucket_impl
         }
     }
 
-    void update_config(topology::configuration config) override
+    void update_config(const topology::configuration& config) override
     {
         bool forced_config = false;
-        std::vector<topology::configuration::node> added{};
-        std::vector<topology::configuration::node> removed{};
+        std::vector<topology::node> added{};
+        std::vector<topology::node> removed{};
         {
             std::scoped_lock lock(config_mutex_);
             if (!config_) {
@@ -513,8 +487,8 @@ class bucket_impl
             }
 
             if (config_) {
-                diff_nodes(config_->nodes, config.nodes, added);
-                diff_nodes(config.nodes, config_->nodes, removed);
+                added = topology::configuration_diff_nodes(config_.value(), config);
+                removed = topology::configuration_diff_nodes(config, config_.value());
             } else {
                 added = config.nodes;
             }
@@ -776,9 +750,9 @@ bucket::ping(std::shared_ptr<diag::ping_collector> collector)
 }
 
 void
-bucket::update_config(topology::configuration config)
+bucket::update_config(const topology::configuration& config)
 {
-    return impl_->update_config(std::move(config));
+    return impl_->update_config(config);
 }
 
 const std::string&

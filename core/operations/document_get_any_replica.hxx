@@ -70,9 +70,9 @@ struct get_any_replica_request {
                   bool done_{ false };
                   std::mutex mutex_{};
               };
-              auto ctx = std::make_shared<replica_context>(std::move(h), config.num_replicas.value_or(0U) + 1U);
+              auto ctx = std::make_shared<replica_context>(std::move(h), topology::configuration_get_number_of_replicas(config) + 1U);
 
-              for (std::size_t idx = 1U; idx <= config.num_replicas.value_or(0U); ++idx) {
+              for (std::size_t idx = 1U; idx <= topology::configuration_get_number_of_replicas(config); ++idx) {
                   document_id replica_id{ id };
                   replica_id.node_index(idx);
                   core->execute(impl::get_replica_request{ std::move(replica_id), timeout }, [ctx](impl::get_replica_response&& resp) {

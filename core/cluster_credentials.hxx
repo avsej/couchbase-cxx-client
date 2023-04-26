@@ -1,6 +1,6 @@
 /* -*- Mode: C++; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 /*
- *   Copyright 2020-2021 Couchbase, Inc.
+ *   Copyright 2020-Present Couchbase, Inc.
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -17,24 +17,22 @@
 
 #pragma once
 
-#include "core/protocol/hello_feature.hxx"
-#include "core/topology/configuration_fwd.hxx"
-
-#include <algorithm>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace couchbase::core
 {
+struct cluster_credentials {
+    std::string username{};
+    std::string password{};
+    std::string certificate_path{};
+    std::string key_path{};
+    std::optional<std::vector<std::string>> allowed_sasl_mechanisms{};
 
-struct mcbp_context {
-    const std::optional<topology::configuration>& config;
-    const std::vector<protocol::hello_feature>& supported_features;
-
-    [[nodiscard]] bool supports_feature(protocol::hello_feature feature) const
+    [[nodiscard]] bool uses_certificate() const
     {
-        return std::find(supported_features.begin(), supported_features.end(), feature) != supported_features.end();
+        return !certificate_path.empty();
     }
 };
-
 } // namespace couchbase::core

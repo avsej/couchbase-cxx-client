@@ -18,7 +18,7 @@
 #pragma once
 
 #include "core/cluster_options.hxx"
-#include "core/topology/configuration.hxx"
+#include "core/topology/configuration_fwd.hxx"
 #include "query_cache.hxx"
 
 namespace couchbase::core

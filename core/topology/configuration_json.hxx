@@ -35,16 +35,16 @@ struct traits<couchbase::core::topology::configuration> {
 
         if (auto* node_locator = v.find("nodeLocator"); node_locator != nullptr && node_locator->is_string()) {
             if (node_locator->get_string() == "ketama") {
-                result.node_locator = couchbase::core::topology::configuration::node_locator_type::ketama;
+                result.node_locator = couchbase::core::topology::node_locator_type::ketama;
             } else {
-                result.node_locator = couchbase::core::topology::configuration::node_locator_type::vbucket;
+                result.node_locator = couchbase::core::topology::node_locator_type::vbucket;
             }
         }
 
         if (auto* nodes_ext = v.find("nodesExt"); nodes_ext != nullptr) {
             size_t index = 0;
             for (const auto& j : nodes_ext->get_array()) {
-                couchbase::core::topology::configuration::node n;
+                couchbase::core::topology::node n;
                 n.index = index++;
                 const auto& o = j.get_object();
                 if (const auto& this_node = o.find("thisNode"); this_node != o.end() && this_node->second.get_boolean()) {
@@ -73,7 +73,7 @@ struct traits<couchbase::core::topology::configuration> {
                     const auto& alt = o.find("alternateAddresses");
                     if (alt != o.end()) {
                         for (const auto& entry : alt->second.get_object()) {
-                            couchbase::core::topology::configuration::alternate_address addr;
+                            couchbase::core::topology::alternate_address addr;
                             addr.name = entry.first;
                             addr.hostname = entry.second.at("hostname").get_string();
                             const auto& ports = entry.second.find("ports");
@@ -98,14 +98,14 @@ struct traits<couchbase::core::topology::configuration> {
                 result.nodes.emplace_back(n);
             }
         } else {
-            if (result.node_locator == couchbase::core::topology::configuration::node_locator_type::vbucket) {
+            if (result.node_locator == couchbase::core::topology::node_locator_type::vbucket) {
                 const auto* m = v.find("vBucketServerMap");
                 const auto& nodes = v.at("nodes").get_array();
                 if (m != nullptr) {
                     size_t index = 0;
                     if (const auto* s = m->find("serverList"); s != nullptr && s->is_array()) {
                         for (const auto& j : s->get_array()) {
-                            couchbase::core::topology::configuration::node n;
+                            couchbase::core::topology::node n;
                             n.index = index++;
                             const auto& address = j.get_string();
                             n.hostname = address.substr(0, address.rfind(':'));
@@ -144,7 +144,7 @@ struct traits<couchbase::core::topology::configuration> {
             } else {
                 size_t index = 0;
                 for (const auto& node : v.at("nodes").get_array()) {
-                    couchbase::core::topology::configuration::node n;
+                    couchbase::core::topology::node n;
                     n.index = index++;
                     const auto& o = node.get_object();
 

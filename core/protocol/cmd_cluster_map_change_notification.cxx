@@ -16,8 +16,8 @@
  */
 
 #include "cmd_cluster_map_change_notification.hxx"
-#include "cmd_get_cluster_config.hxx"
-#include "core/topology/configuration_json.hxx"
+
+#include "core/topology/configuration.hxx"
 #include "core/utils/byteswap.hxx"
 #include "core/utils/json.hxx"
 
@@ -45,8 +45,8 @@ cluster_map_change_notification_request_body::parse(const header_buffer& header,
     bucket_.assign(data_ptr + offset, data_ptr + offset + key_size);
     offset += key_size;
     if (body.size() > static_cast<std::size_t>(offset)) {
-        std::string_view config_text{ data_ptr + offset, body.size() - static_cast<std::size_t>(offset) };
-        config_ = parse_config(config_text, info.endpoint_address, info.endpoint_port);
+        const std::string_view config_text{ data_ptr + offset, body.size() - static_cast<std::size_t>(offset) };
+        config_ = topology::parse_configuration(config_text, info.endpoint_address, info.endpoint_port);
     }
     return true;
 }

@@ -247,6 +247,7 @@ set(couchbase_cxx_client_FILES
         core/protocol/frame_info_utils.cxx
         core/protocol/status.cxx
         core/topology/configuration.cxx
+        core/topology/node.cxx
         core/utils/binary.cxx
         core/utils/connection_string.cxx
         core/utils/duration_parser.cxx
@@ -325,6 +326,7 @@ set(couchbase_cxx_client_FILES
         core/io/dns_client.cxx
         core/io/dns_config.cxx
         core/io/http_parser.cxx
+        core/io/http_session_manager.cxx
         core/io/mcbp_message.cxx
         core/io/mcbp_parser.cxx
         core/io/mcbp_session.cxx

@@ -17,150 +17,17 @@
 
 #include "configuration.hxx"
 
-#include "core/logger/logger.hxx"
-#include "core/service_type_fmt.hxx"
+#include "configuration_fwd.hxx"
+#include "configuration_json.hxx"
+#include "core/utils/json.hxx"
+
+#include <fmt/core.h>
 
 #include <algorithm>
 #include <stdexcept>
 
 namespace couchbase::core::topology
 {
-std::uint16_t
-configuration::node::port_or(service_type type, bool is_tls, std::uint16_t default_value) const
-{
-    if (is_tls) {
-        switch (type) {
-            case service_type::query:
-                return services_tls.query.value_or(default_value);
-
-            case service_type::analytics:
-                return services_tls.analytics.value_or(default_value);
-
-            case service_type::search:
-                return services_tls.search.value_or(default_value);
-
-            case service_type::view:
-                return services_tls.views.value_or(default_value);
-
-            case service_type::management:
-                return services_tls.management.value_or(default_value);
-
-            case service_type::key_value:
-                return services_tls.key_value.value_or(default_value);
-
-            case service_type::eventing:
-                return services_tls.eventing.value_or(default_value);
-        }
-    }
-    switch (type) {
-        case service_type::query:
-            return services_plain.query.value_or(default_value);
-
-        case service_type::analytics:
-            return services_plain.analytics.value_or(default_value);
-
-        case service_type::search:
-            return services_plain.search.value_or(default_value);
-
-        case service_type::view:
-            return services_plain.views.value_or(default_value);
-
-        case service_type::management:
-            return services_plain.management.value_or(default_value);
-
-        case service_type::key_value:
-            return services_plain.key_value.value_or(default_value);
-
-        case service_type::eventing:
-            return services_plain.eventing.value_or(default_value);
-    }
-    return default_value;
-}
-
-const std::string&
-configuration::node::hostname_for(const std::string& network) const
-{
-    if (network == "default") {
-        return hostname;
-    }
-    const auto& address = alt.find(network);
-    if (address == alt.end()) {
-        CB_LOG_WARNING(R"(requested network "{}" is not found, fallback to "default" host)", network);
-        return hostname;
-    }
-    return address->second.hostname;
-}
-
-std::uint16_t
-configuration::node::port_or(const std::string& network, service_type type, bool is_tls, std::uint16_t default_value) const
-{
-    if (network == "default") {
-        return port_or(type, is_tls, default_value);
-    }
-    const auto& address = alt.find(network);
-    if (address == alt.end()) {
-        CB_LOG_WARNING(R"(requested network "{}" is not found, fallback to "default" port of {} service)", network, type);
-        return port_or(type, is_tls, default_value);
-    }
-    if (is_tls) {
-        switch (type) {
-            case service_type::query:
-                return address->second.services_tls.query.value_or(default_value);
-
-            case service_type::analytics:
-                return address->second.services_tls.analytics.value_or(default_value);
-
-            case service_type::search:
-                return address->second.services_tls.search.value_or(default_value);
-
-            case service_type::view:
-                return address->second.services_tls.views.value_or(default_value);
-
-            case service_type::management:
-                return address->second.services_tls.management.value_or(default_value);
-
-            case service_type::key_value:
-                return address->second.services_tls.key_value.value_or(default_value);
-
-            case service_type::eventing:
-                return address->second.services_tls.eventing.value_or(default_value);
-        }
-    }
-    switch (type) {
-        case service_type::query:
-            return address->second.services_plain.query.value_or(default_value);
-
-        case service_type::analytics:
-            return address->second.services_plain.analytics.value_or(default_value);
-
-        case service_type::search:
-            return address->second.services_plain.search.value_or(default_value);
-
-        case service_type::view:
-            return address->second.services_plain.views.value_or(default_value);
-
-        case service_type::management:
-            return address->second.services_plain.management.value_or(default_value);
-
-        case service_type::key_value:
-            return address->second.services_plain.key_value.value_or(default_value);
-
-        case service_type::eventing:
-            return address->second.services_plain.eventing.value_or(default_value);
-    }
-    return default_value;
-}
-
-std::optional<std::string>
-configuration::node::endpoint(const std::string& network, service_type type, bool is_tls) const
-{
-    auto p = port_or(type, is_tls, 0);
-    if (p == 0) {
-        return {};
-    }
-    return fmt::format("{}:{}", hostname_for(network), p);
-}
-
 bool
 configuration::has_node_with_hostname(const std::string& hostname) const
 {
@@ -217,6 +84,17 @@ configuration::server_by_vbucket(std::uint16_t vbucket, std::size_t index)
     return {};
 }
 
+std::pair<std::uint16_t, std::optional<std::size_t>>
+configuration::map_key(std::string_view key, std::size_t index)
+{
+    if (!vbmap.has_value()) {
+        return { 0, {} };
+    }
+    std::uint32_t crc = utils::hash_crc32(key.data(), key.size());
+    auto vbucket = static_cast<std::uint16_t>(crc % vbmap->size());
+    return { vbucket, server_by_vbucket(vbucket, index) };
+}
+
 configuration
 make_blank_configuration(const std::string& hostname, std::uint16_t plain_port, std::uint16_t tls_port)
 {
@@ -243,7 +121,7 @@ make_blank_configuration(const std::vector<std::pair<std::string, std::string>>&
     result.nodes.resize(endpoints.size());
     std::size_t idx{ 0 };
     for (const auto& [hostname, port] : endpoints) {
-        configuration::node node{ false, idx++, hostname };
+        topology::node node{ false, idx++, hostname };
         if (use_tls) {
             node.services_tls.key_value = std::stol(port);
         } else {
@@ -253,4 +131,65 @@ make_blank_configuration(const std::vector<std::pair<std::string, std::string>>&
     }
     return result;
 }
+
+auto
+configuration_get_number_of_replicas(const configuration& config) -> std::uint32_t
+{
+    return config.num_replicas.value_or(0U);
+}
+
+auto
+configuration_diff_nodes(const configuration& lhs, const configuration& rhs) -> std::vector<topology::node>
+{
+    std::vector<topology::node> output;
+    for (const auto& re : rhs.nodes) {
+        bool known = false;
+        for (const auto& le : lhs.nodes) {
+            if (le.hostname == re.hostname && le.services_plain.management.value_or(0) == re.services_plain.management.value_or(0)) {
+                known = true;
+                break;
+            }
+        }
+        if (!known) {
+            output.push_back(re);
+        }
+    }
+    return output;
+}
+
+auto
+parse_configuration(std::string_view input, std::string_view endpoint_address, std::uint16_t endpoint_port) -> configuration
+{
+    auto config = utils::json::parse(input).as<topology::configuration>();
+    for (auto& node : config.nodes) {
+        if (node.hostname == "$HOST") {
+            node.hostname = endpoint_address;
+        }
+    }
+
+    // workaround for servers which don't specify this_node
+    {
+        bool has_this_node = false;
+        for (const auto& node : config.nodes) {
+            if (node.this_node) {
+                has_this_node = true;
+                break;
+            }
+        }
+
+        if (!has_this_node) {
+            for (auto& node : config.nodes) {
+                auto kv_port = node.port_or(couchbase::core::service_type::key_value, false, 0);
+                auto kv_tls_port = node.port_or(couchbase::core::service_type::key_value, true, 0);
+                if (node.hostname == endpoint_address && (kv_port == endpoint_port || kv_tls_port == endpoint_port)) {
+                    node.this_node = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    return config;
+}
+
 } // namespace couchbase::core::topology

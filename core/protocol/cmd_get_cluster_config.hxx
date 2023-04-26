@@ -20,30 +20,23 @@
 #include "client_opcode.hxx"
 #include "cmd_info.hxx"
 #include "core/io/mcbp_message.hxx"
-#include "core/topology/configuration.hxx"
+#include "core/topology/configuration_fwd.hxx"
 #include "status.hxx"
 
 #include <string_view>
 
 namespace couchbase::core::protocol
 {
-
-topology::configuration
-parse_config(std::string_view input, std::string_view endpoint_address, std::uint16_t endpoint_port);
-
 class get_cluster_config_response_body
 {
   public:
     static const inline client_opcode opcode = client_opcode::get_cluster_config;
 
   private:
-    topology::configuration config_{};
+    std::unique_ptr<topology::configuration> config_{};
 
   public:
-    [[nodiscard]] topology::configuration&& config()
-    {
-        return std::move(config_);
-    }
+    [[nodiscard]] auto config() const -> topology::configuration;
 
     bool parse(key_value_status_code status,
                const header_buffer& header,

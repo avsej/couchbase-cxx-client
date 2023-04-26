@@ -19,7 +19,7 @@
 
 #include "cmd_info.hxx"
 #include "core/io/mcbp_message.hxx"
-#include "core/topology/configuration.hxx"
+#include "core/topology/configuration_fwd.hxx"
 #include "server_opcode.hxx"
 
 namespace couchbase::core::protocol

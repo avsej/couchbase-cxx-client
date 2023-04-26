@@ -138,7 +138,7 @@ class bucket
         });
     }
 
-    void update_config(topology::configuration config) override;
+    void update_config(const topology::configuration &config) override;
     void bootstrap(utils::movable_function<void(std::error_code, topology::configuration)>&& handler);
     void with_configuration(utils::movable_function<void(std::error_code, topology::configuration)>&& handler);
 

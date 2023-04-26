@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "cluster_credentials.hxx"
 #include "core/utils/connection_string.hxx"
 
 #include <fmt/core.h>
@@ -26,19 +27,6 @@
 
 namespace couchbase::core
 {
-struct cluster_credentials {
-    std::string username{};
-    std::string password{};
-    std::string certificate_path{};
-    std::string key_path{};
-    std::optional<std::vector<std::string>> allowed_sasl_mechanisms{};
-
-    [[nodiscard]] bool uses_certificate() const
-    {
-        return !certificate_path.empty();
-    }
-};
-
 struct origin {
     using node_entry = std::pair<std::string, std::string>;
     using node_list = std::vector<node_entry>;
