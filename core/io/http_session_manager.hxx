@@ -18,6 +18,8 @@
 #pragma once
 
 #include "core/config_listener.hxx"
+#include "core/impl/core_error_context.hxx"
+#include "core/impl/core_operation_info.hxx"
 #include "core/operations/http_noop.hxx"
 #include "core/service_type.hxx"
 #include "core/tracing/noop_tracer.hxx"
@@ -273,22 +275,21 @@ class http_session_manager
           std::make_shared<operations::http_command<Request>>(ctx_, request, tracer_, meter_, options_.default_timeout_for(request.type));
         cmd->start([self = shared_from_this(), cmd, http_ctx, handler = std::forward<Handler>(handler)](std::error_code ec,
                                                                                                         io::http_response&& msg) mutable {
-            using command_type = typename decltype(cmd)::element_type;
-            using encoded_response_type = typename command_type::encoded_response_type;
-            using error_context_type = typename command_type::error_context_type;
-            encoded_response_type resp{ std::move(msg) };
-            error_context_type ctx{};
-            ctx.ec = ec;
-            ctx.client_context_id = cmd->client_context_id_;
-            ctx.method = cmd->encoded.method;
-            ctx.path = cmd->encoded.path;
-            ctx.last_dispatched_from = cmd->session_->local_address();
-            ctx.last_dispatched_to = cmd->session_->remote_address();
-            ctx.http_status = resp.status_code;
-            ctx.http_body = resp.body.data();
-            ctx.hostname = http_ctx.hostname;
-            ctx.port = http_ctx.port;
-            handler(cmd->request.make_response(std::move(ctx), std::move(resp)));
+            handler(cmd->request.make_response(core_error_context{ core_operation_info{
+                                                                     ec,
+                                                                     cmd->session_->remote_address(),
+                                                                     cmd->session_->local_address(),
+                                                                     {},
+                                                                     {},
+                                                                   },
+                                                                   tao::json::value{
+                                                                     { "client_context_id", cmd->client_context_id_ },
+                                                                     { "method", cmd->encoded.method },
+                                                                     { "path", cmd->encoded.path },
+                                                                     { "hostname", http_ctx.hostname },
+                                                                     { "port", http_ctx.port },
+                                                                   } },
+                                               std::move(msg)));
             self->check_in(cmd->request.type, cmd->session_);
         });
         cmd->send_to(session);

@@ -19,6 +19,8 @@
 
 #include "core/design_document_namespace.hxx"
 #include "core/error_context/view.hxx"
+#include "core/impl/core_error_context.hxx"
+#include "core/impl/core_view_error_context.hxx"
 #include "core/io/http_context.hxx"
 #include "core/io/http_message.hxx"
 #include "core/io/http_traits.hxx"
@@ -47,7 +49,7 @@ struct document_view_response {
         std::string message;
     };
 
-    error_context::view ctx;
+    core_view_error_context ctx;
     meta_data meta{};
     std::vector<document_view_response::row> rows{};
     std::optional<problem> error{};
@@ -57,7 +59,6 @@ struct document_view_request {
     using response_type = document_view_response;
     using encoded_request_type = io::http_request;
     using encoded_response_type = io::http_response;
-    using error_context_type = error_context::view;
 
     static const inline service_type type = service_type::view;
 
@@ -96,7 +97,7 @@ struct document_view_request {
 
     [[nodiscard]] std::error_code encode_to(encoded_request_type& encoded, http_context& context);
 
-    [[nodiscard]] document_view_response make_response(error_context::view&& ctx, const encoded_response_type& encoded) const;
+    [[nodiscard]] document_view_response make_response(core_error_context&& ctx, const io::http_response& encoded) const;
 };
 
 } // namespace couchbase::core::operations

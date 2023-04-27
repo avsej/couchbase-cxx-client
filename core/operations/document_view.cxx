@@ -17,11 +17,14 @@
 
 #include "document_view.hxx"
 
+#include "core/impl/core_error_context.hxx"
 #include "core/utils/join_strings.hxx"
 #include "core/utils/json.hxx"
 #include "core/utils/url_codec.hxx"
 
 #include <couchbase/error_codes.hxx>
+
+#include <tao/json/contrib/traits.hpp>
 
 namespace couchbase::core::operations
 {
@@ -131,67 +134,73 @@ document_view_request::encode_to(document_view_request::encoded_request_type& en
 }
 
 document_view_response
-document_view_request::make_response(error_context::view&& ctx, const encoded_response_type& encoded) const
+document_view_request::make_response(std::error_code ec, core_error_context&& ctx, const io::http_response& encoded) const
 {
-    document_view_response response{ std::move(ctx) };
-    response.ctx.design_document_name = document_name;
-    response.ctx.view_name = view_name;
-    response.ctx.query_string = query_string;
-    if (!response.ctx.ec) {
-        if (encoded.status_code == 200) {
-            tao::json::value payload{};
-            try {
-                payload = utils::json::parse(encoded.body.data());
-            } catch (const tao::pegtl::parse_error&) {
-                response.ctx.ec = errc::common::parsing_failure;
-                return response;
-            }
+    if (ctx.ec()) {
+        return document_view_response{ ec, core_view_error_context(std::move(ctx),
+                                                               tao::json::value{
+                                                                 { "design_document_name", document_name },
+                                                                 { "view_name", view_name },
+                                                                 { "query_string", query_string },
+                                                                 { "http_status", encoded.status_code },
+                                                                 { "http_body", encoded.body.data() },
+                                                               }) };
+    };
 
-            if (const auto* total_rows = payload.find("total_rows"); total_rows != nullptr && total_rows->is_unsigned()) {
-                response.meta.total_rows = total_rows->get_unsigned();
-            }
-
-            if (const auto* debug_info = payload.find("debug_info"); debug_info != nullptr && debug_info->is_object()) {
-                response.meta.debug_info.emplace(utils::json::generate(*debug_info));
-            }
-
-            if (const auto* rows = payload.find("rows"); rows != nullptr && rows->is_array()) {
-                for (const auto& entry : rows->get_array()) {
-                    document_view_response::row row{};
-
-                    if (const auto* id = entry.find("id"); id != nullptr && id->is_string()) {
-                        row.id = id->get_string();
-                    }
-                    row.key = utils::json::generate(entry.at("key"));
-                    row.value = utils::json::generate(entry.at("value"));
-                    response.rows.emplace_back(row);
-                }
-            }
-        } else if (encoded.status_code == 400) {
-            tao::json::value payload{};
-            try {
-                payload = utils::json::parse(encoded.body.data());
-            } catch (const tao::pegtl::parse_error&) {
-                response.ctx.ec = errc::common::parsing_failure;
-                return response;
-            }
-            document_view_response::problem problem{};
-
-            if (const auto* error = payload.find("error"); error != nullptr && error->is_string()) {
-                problem.code = error->get_string();
-            }
-
-            if (const auto* reason = payload.find("reason"); reason != nullptr && reason->is_string()) {
-                problem.message = reason->get_string();
-            }
-            response.error.emplace(problem);
-            response.ctx.ec = errc::common::invalid_argument;
-        } else if (encoded.status_code == 404) {
-            response.ctx.ec = errc::view::design_document_not_found;
-        } else {
-            response.ctx.ec = errc::common::internal_server_failure;
+    if (encoded.status_code == 200) {
+        tao::json::value payload{};
+        try {
+            payload = utils::json::parse(encoded.body.data());
+        } catch (const tao::pegtl::parse_error&) {
+            response.ctx.ec = errc::common::parsing_failure;
+            return response;
         }
+
+        if (const auto* total_rows = payload.find("total_rows"); total_rows != nullptr && total_rows->is_unsigned()) {
+            response.meta.total_rows = total_rows->get_unsigned();
+        }
+
+        if (const auto* debug_info = payload.find("debug_info"); debug_info != nullptr && debug_info->is_object()) {
+            response.meta.debug_info.emplace(utils::json::generate(*debug_info));
+        }
+
+        if (const auto* rows = payload.find("rows"); rows != nullptr && rows->is_array()) {
+            for (const auto& entry : rows->get_array()) {
+                document_view_response::row row{};
+
+                if (const auto* id = entry.find("id"); id != nullptr && id->is_string()) {
+                    row.id = id->get_string();
+                }
+                row.key = utils::json::generate(entry.at("key"));
+                row.value = utils::json::generate(entry.at("value"));
+                response.rows.emplace_back(row);
+            }
+        }
+    } else if (encoded.status_code == 400) {
+        tao::json::value payload{};
+        try {
+            payload = utils::json::parse(encoded.body.data());
+        } catch (const tao::pegtl::parse_error&) {
+            response.ctx.ec = errc::common::parsing_failure;
+            return response;
+        }
+        document_view_response::problem problem{};
+
+        if (const auto* error = payload.find("error"); error != nullptr && error->is_string()) {
+            problem.code = error->get_string();
+        }
+
+        if (const auto* reason = payload.find("reason"); reason != nullptr && reason->is_string()) {
+            problem.message = reason->get_string();
+        }
+        response.error.emplace(problem);
+        response.ctx.ec = errc::common::invalid_argument;
+    } else if (encoded.status_code == 404) {
+        response.ctx.ec = errc::view::design_document_not_found;
+    } else {
+        response.ctx.ec = errc::common::internal_server_failure;
     }
+
     return response;
 }
 } // namespace couchbase::core::operations

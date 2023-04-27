@@ -260,10 +260,11 @@ set(couchbase_cxx_client_FILES
         core/impl/append.cxx
         core/impl/best_effort_retry_strategy.cxx
         core/impl/build_deferred_query_indexes.cxx
-        core/impl/collection_query_index_manager.cxx
         core/impl/cluster.cxx
+        core/impl/collection_query_index_manager.cxx
         core/impl/common_error_category.cxx
         core/impl/configuration_profiles_registry.cxx
+        core/impl/core_error_context.cxx
         core/impl/create_query_index.cxx
         core/impl/decrement.cxx
         core/impl/dns_srv_tracker.cxx
@@ -403,9 +404,9 @@ endif ()
 if (NOT COUCHBASE_CXX_CLIENT_POST_LINKED_OPENSSL)
     if (TARGET PkgConfig::PKG_CONFIG_OPENSSL)
         target_link_libraries(couchbase_cxx_client PUBLIC PkgConfig::PKG_CONFIG_OPENSSL)
-    else()
+    else ()
         target_link_libraries(couchbase_cxx_client PUBLIC OpenSSL::SSL OpenSSL::Crypto)
-    endif()
+    endif ()
 endif ()
 
 option(COUCHBASE_CXX_CLIENT_BUILD_TESTS "Build test programs" TRUE)
