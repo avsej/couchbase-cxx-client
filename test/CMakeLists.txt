@@ -18,6 +18,42 @@ integration_test(transcoders)
 integration_test(range_scan)
 integration_test(search)
 
+add_executable(test_integration
+        test_integration_connect.cxx
+        test_integration_management.cxx
+        test_integration_crud.cxx
+        test_integration_query.cxx
+        test_integration_diagnostics.cxx
+        test_integration_binary_operations.cxx
+        test_integration_durability.cxx
+        test_integration_arithmetic.cxx
+        test_integration_collections.cxx
+        test_integration_subdoc.cxx
+        test_integration_analytics.cxx
+        test_integration_read_replica.cxx
+        test_integration_tracer.cxx
+        test_integration_meter.cxx
+        test_integration_transcoders.cxx
+        test_integration_range_scan.cxx
+        test_integration_search.cxx)
+target_include_directories(test_integration PRIVATE ${PROJECT_BINARY_DIR}/generated)
+target_link_libraries(
+        test_integration
+        project_options
+        project_warnings
+        Catch2::Catch2WithMain
+        Threads::Threads
+        snappy
+        couchbase_cxx_client
+        test_utils)
+catch_discover_tests(
+        test_integration
+        PROPERTIES
+        SKIP_REGULAR_EXPRESSION
+        "SKIP"
+        LABELS
+        "integration")
+
 unit_test(connection_string)
 unit_test(utils)
 unit_test(json_transcoder)
