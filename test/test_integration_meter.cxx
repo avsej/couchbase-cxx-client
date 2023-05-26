@@ -17,6 +17,10 @@
 
 #include "test_helper_integration.hxx"
 
+#include "core/operations/document_get.hxx"
+#include "core/operations/document_insert.hxx"
+#include "core/operations/document_replace.hxx"
+#include "core/operations/document_upsert.hxx"
 #include "core/platform/uuid.h"
 
 #include <couchbase/metrics/meter.hxx>

@@ -20,12 +20,15 @@
 #include <catch2/catch_approx.hpp>
 
 #include "core/management/analytics_link.hxx"
+#include "core/operations/document_get.hxx"
+#include "core/operations/document_insert.hxx"
 #include "core/operations/management/analytics.hxx"
 #include "core/operations/management/bucket.hxx"
 #include "core/operations/management/collections.hxx"
 #include "core/operations/management/eventing.hxx"
 #include "core/operations/management/freeform.hxx"
 #include "core/operations/management/query.hxx"
+#include "core/operations/management/scope_get_all.hxx"
 #include "core/operations/management/search.hxx"
 #include "core/operations/management/user.hxx"
 #include "couchbase/cluster.hxx"
@@ -470,7 +473,7 @@ TEST_CASE("integration: bucket management", "[integration]")
 }
 
 std::optional<couchbase::core::topology::collections_manifest::collection>
-get_collection(std::shared_ptr<couchbase::core::cluster> cluster,
+get_collection(const couchbase::core::cluster& cluster,
                const std::string& bucket_name,
                const std::string& scope_name,
                const std::string& collection_name)
@@ -492,7 +495,7 @@ get_collection(std::shared_ptr<couchbase::core::cluster> cluster,
 }
 
 bool
-scope_exists(std::shared_ptr<couchbase::core::cluster> cluster, const std::string& bucket_name, const std::string& scope_name)
+scope_exists(const couchbase::core::cluster& cluster, const std::string& bucket_name, const std::string& scope_name)
 {
     couchbase::core::operations::management::scope_get_all_request req{ bucket_name };
     auto resp = test::utils::execute(cluster, req);
@@ -858,6 +861,12 @@ TEST_CASE("integration: user groups management", "[integration]")
     }
 }
 
+namespace couchbase
+{
+auto
+extract_core_cluster(const couchbase::cluster& cluster) -> const core::cluster&;
+}
+
 TEST_CASE("integration: user management", "[integration]")
 {
     test::utils::integration_test_guard integration;
@@ -896,62 +905,67 @@ TEST_CASE("integration: user management", "[integration]")
 
         SECTION("change user password")
         {
-            asio::io_context io;
-            auto guard = asio::make_work_guard(io);
-            std::thread io_thread([&io]() { io.run(); });
             auto user_name = test::utils::uniq_id("newUser");
-
             // Create options
             auto options_original = couchbase::cluster_options(integration.ctx.username, integration.ctx.password);
             auto options_outdated = couchbase::cluster_options(user_name, integration.ctx.password);
             auto options_updated = couchbase::cluster_options(user_name, "newPassword");
 
-            // Create new user and upsert
-            couchbase::core::management::rbac::user new_user{ user_name };
-            new_user.display_name = "change_password_user";
-            new_user.password = integration.ctx.password;
-            new_user.roles = {
-                couchbase::core::management::rbac::role{ "admin" },
-            };
-            auto [cluster, ec] = couchbase::cluster::connect(io, integration.ctx.connection_string, options_original).get();
-            auto coreCluster = cluster.core();
-            couchbase::core::operations::management::user_upsert_request upsertReq{};
-            upsertReq.user = new_user;
-            auto upsertResp = test::utils::execute(coreCluster, upsertReq);
-            REQUIRE_SUCCESS(upsertResp.ctx.ec);
-            test::utils::wait_until_user_present(integration.cluster, user_name);
-            cluster.close();
-            guard.reset();
-            io_thread.join();
+            {
+                asio::io_context io;
+                auto guard = asio::make_work_guard(io);
+                std::thread io_thread([&io]() { io.run(); });
 
-            // Connect with new credentials and change password
-            asio::io_context io2;
-            auto guard2 = asio::make_work_guard(io2);
-            std::thread io_thread2([&io2]() { io2.run(); });
-            auto [cluster_new, ec_new] = couchbase::cluster::connect(io2, integration.ctx.connection_string, options_outdated).get();
-            auto coreCluster_new = cluster_new.core();
-            couchbase::core::operations::management::change_password_request changePasswordReq{};
-            changePasswordReq.newPassword = "newPassword";
-            auto changePasswordResp = test::utils::execute(coreCluster_new, changePasswordReq);
-            REQUIRE_SUCCESS(changePasswordResp.ctx.ec);
-            test::utils::wait_until_cluster_connected(user_name, changePasswordReq.newPassword, integration.ctx.connection_string);
-            cluster_new.close();
-            guard2.reset();
-            io_thread2.join();
+                // Create new user and upsert
+                couchbase::core::management::rbac::user new_user{ user_name };
+                new_user.display_name = "change_password_user";
+                new_user.password = integration.ctx.password;
+                new_user.roles = {
+                    couchbase::core::management::rbac::role{ "admin" },
+                };
+                auto [cluster, ec] = couchbase::cluster::connect(io, integration.ctx.connection_string, options_original).get();
+                couchbase::core::operations::management::user_upsert_request upsertReq{};
+                upsertReq.user = new_user;
+                auto upsertResp = test::utils::execute(couchbase::extract_core_cluster(cluster), upsertReq);
+                REQUIRE_SUCCESS(upsertResp.ctx.ec);
+                test::utils::wait_until_user_present(integration.cluster, user_name);
+                cluster.close();
+                guard.reset();
+                io_thread.join();
+            }
 
-            // Connect with old credentials, should fail
-            asio::io_context io3;
-            auto guard3 = asio::make_work_guard(io3);
-            std::thread io_thread3([&io3]() { io3.run(); });
-            auto [cluster_fail, ec_fail] = couchbase::cluster::connect(io3, integration.ctx.connection_string, options_outdated).get();
-            REQUIRE(ec_fail == couchbase::errc::common::authentication_failure);
+            {
+                // Connect with new credentials and change password
+                asio::io_context io;
+                auto guard = asio::make_work_guard(io);
+                std::thread io_thread([&io]() { io.run(); });
+                auto [cluster_new, ec_new] = couchbase::cluster::connect(io, integration.ctx.connection_string, options_outdated).get();
+                couchbase::core::operations::management::change_password_request changePasswordReq{};
+                changePasswordReq.newPassword = "newPassword";
+                auto changePasswordResp = test::utils::execute(couchbase::extract_core_cluster(cluster_new), changePasswordReq);
+                REQUIRE_SUCCESS(changePasswordResp.ctx.ec);
+                test::utils::wait_until_cluster_connected(user_name, changePasswordReq.newPassword, integration.ctx.connection_string);
+                cluster_new.close();
+                guard.reset();
+                io_thread.join();
+            }
 
-            // Make connection with new credentials, should succeed
-            auto [cluster_success, ec_success] = couchbase::cluster::connect(io3, integration.ctx.connection_string, options_updated).get();
-            REQUIRE_SUCCESS(ec_success);
-            cluster_success.close();
-            guard3.reset();
-            io_thread3.join();
+            {
+                // Connect with old credentials, should fail
+                asio::io_context io;
+                auto guard = asio::make_work_guard(io);
+                std::thread io_thread([&io]() { io.run(); });
+                auto [cluster_fail, ec_fail] = couchbase::cluster::connect(io, integration.ctx.connection_string, options_outdated).get();
+                REQUIRE(ec_fail == couchbase::errc::common::authentication_failure);
+
+                // Make connection with new credentials, should succeed
+                auto [cluster_success, ec_success] =
+                  couchbase::cluster::connect(io, integration.ctx.connection_string, options_updated).get();
+                REQUIRE_SUCCESS(ec_success);
+                cluster_success.close();
+                guard.reset();
+                io_thread.join();
+            }
         }
     }
 }
@@ -2879,42 +2893,6 @@ TEST_CASE("integration: search index management", "[integration]")
         auto resp = test::utils::execute(integration.cluster, req);
         REQUIRE_SUCCESS(resp.ctx.ec);
     }
-}
-
-bool
-wait_for_search_pindexes_ready(test::utils::integration_test_guard& integration, const std::string& index_name)
-{
-    return test::utils::wait_until(
-      [&integration, &index_name]() {
-          couchbase::core::operations::management::search_index_stats_request req{};
-          auto resp = test::utils::execute(integration.cluster, req);
-          if (resp.ctx.ec || resp.stats.empty()) {
-              return false;
-          }
-          auto stats = couchbase::core::utils::json::parse(resp.stats);
-
-          const auto num_pindexes_actual_key = fmt::format("{}:{}:num_pindexes_actual", integration.ctx.bucket, index_name);
-          const auto num_pindexes_target_key = fmt::format("{}:{}:num_pindexes_target", integration.ctx.bucket, index_name);
-          const auto* num_pindexes_actual = stats.find(num_pindexes_actual_key);
-          const auto* num_pindexes_target = stats.find(num_pindexes_target_key);
-          CB_LOG_DEBUG(
-            "wait_for_search_pindexes_ready: {}={}, {}={}",
-            num_pindexes_actual_key,
-            (num_pindexes_actual == nullptr || !num_pindexes_actual->is_number()) ? "missing"
-                                                                                  : std::to_string(num_pindexes_actual->get_unsigned()),
-            num_pindexes_target_key,
-            (num_pindexes_target == nullptr || !num_pindexes_target->is_number()) ? "missing"
-                                                                                  : std::to_string(num_pindexes_target->get_unsigned()));
-
-          if (num_pindexes_actual == nullptr || !num_pindexes_actual->is_number()) {
-              return false;
-          }
-          if (num_pindexes_target == nullptr || !num_pindexes_target->is_number()) {
-              return false;
-          }
-          return num_pindexes_actual->get_unsigned() == num_pindexes_target->get_unsigned();
-      },
-      std::chrono::minutes(3));
 }
 
 TEST_CASE("integration: search index management analyze document", "[integration]")

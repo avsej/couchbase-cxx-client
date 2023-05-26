@@ -338,7 +338,7 @@ TEST_CASE("integration: fetch diagnostics after N1QL query", "[integration]")
     {
         auto barrier = std::make_shared<std::promise<couchbase::core::diag::diagnostics_result>>();
         auto f = barrier->get_future();
-        integration.cluster->diagnostics(
+        integration.cluster.diagnostics(
           "my_report_id", [barrier](couchbase::core::diag::diagnostics_result&& resp) mutable { barrier->set_value(std::move(resp)); });
         auto res = f.get();
         REQUIRE(res.id == "my_report_id");
@@ -358,7 +358,7 @@ TEST_CASE("integration: ping", "[integration]")
     {
         auto barrier = std::make_shared<std::promise<couchbase::core::diag::ping_result>>();
         auto f = barrier->get_future();
-        integration.cluster->ping(
+        integration.cluster.ping(
           "my_report_id", {}, {}, [barrier](couchbase::core::diag::ping_result&& resp) mutable { barrier->set_value(std::move(resp)); });
         auto res = f.get();
         REQUIRE(res.services.size() > 0);
@@ -405,10 +405,10 @@ TEST_CASE("integration: ping allows to select services", "[integration]")
     {
         auto barrier = std::make_shared<std::promise<couchbase::core::diag::ping_result>>();
         auto f = barrier->get_future();
-        integration.cluster->ping({},
-                                  {},
-                                  { couchbase::core::service_type::key_value, couchbase::core::service_type::query },
-                                  [barrier](couchbase::core::diag::ping_result&& resp) mutable { barrier->set_value(std::move(resp)); });
+        integration.cluster.ping({},
+                                 {},
+                                 { couchbase::core::service_type::key_value, couchbase::core::service_type::query },
+                                 [barrier](couchbase::core::diag::ping_result&& resp) mutable { barrier->set_value(std::move(resp)); });
         auto res = f.get();
         REQUIRE(res.services.size() == 2);
 
@@ -427,10 +427,10 @@ TEST_CASE("integration: ping allows to select bucket and opens it automatically"
     {
         auto barrier = std::make_shared<std::promise<couchbase::core::diag::ping_result>>();
         auto f = barrier->get_future();
-        integration.cluster->ping({},
-                                  integration.ctx.bucket,
-                                  { couchbase::core::service_type::key_value },
-                                  [barrier](couchbase::core::diag::ping_result&& resp) mutable { barrier->set_value(std::move(resp)); });
+        integration.cluster.ping({},
+                                 integration.ctx.bucket,
+                                 { couchbase::core::service_type::key_value },
+                                 [barrier](couchbase::core::diag::ping_result&& resp) mutable { barrier->set_value(std::move(resp)); });
         auto res = f.get();
         REQUIRE(res.services.size() == 1);
 

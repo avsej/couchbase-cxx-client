@@ -139,7 +139,7 @@ TEST_CASE("integration: range scan large values", "[integration]")
     auto highest_mutation = std::max_element(
       mutations.begin(), mutations.end(), [](auto a, auto b) { return a.second.sequence_number() < b.second.sequence_number(); });
 
-    auto ag = couchbase::core::agent_group(integration.io, { { integration.cluster } });
+    auto ag = couchbase::core::agent_group(integration.io, { { std::make_shared<couchbase::core::cluster>(integration.cluster) } });
     ag.open_bucket(integration.ctx.bucket);
     auto agent = ag.get_agent(integration.ctx.bucket);
     REQUIRE(agent.has_value());
@@ -199,7 +199,7 @@ TEST_CASE("integration: range scan small values", "[integration]")
     auto highest_mutation = std::max_element(
       mutations.begin(), mutations.end(), [](auto a, auto b) { return a.second.sequence_number() < b.second.sequence_number(); });
 
-    auto ag = couchbase::core::agent_group(integration.io, { { integration.cluster } });
+    auto ag = couchbase::core::agent_group(integration.io, { { std::make_shared<couchbase::core::cluster>(integration.cluster) } });
     ag.open_bucket(integration.ctx.bucket);
     auto agent = ag.get_agent(integration.ctx.bucket);
     REQUIRE(agent.has_value());
@@ -300,7 +300,7 @@ TEST_CASE("integration: range scan collection retry", "[integration]")
     auto highest_mutation = std::max_element(
       mutations.begin(), mutations.end(), [](auto a, auto b) { return a.second.sequence_number() < b.second.sequence_number(); });
 
-    auto ag = couchbase::core::agent_group(integration.io, { { integration.cluster } });
+    auto ag = couchbase::core::agent_group(integration.io, { { std::make_shared<couchbase::core::cluster>(integration.cluster) } });
     ag.open_bucket(integration.ctx.bucket);
     auto agent = ag.get_agent(integration.ctx.bucket);
     REQUIRE(agent.has_value());
@@ -363,7 +363,7 @@ TEST_CASE("integration: range scan only keys", "[integration]")
     auto highest_mutation = std::max_element(
       mutations.begin(), mutations.end(), [](auto a, auto b) { return a.second.sequence_number() < b.second.sequence_number(); });
 
-    auto ag = couchbase::core::agent_group(integration.io, { { integration.cluster } });
+    auto ag = couchbase::core::agent_group(integration.io, { { std::make_shared<couchbase::core::cluster>(integration.cluster) } });
     ag.open_bucket(integration.ctx.bucket);
     auto agent = ag.get_agent(integration.ctx.bucket);
     REQUIRE(agent.has_value());
@@ -422,7 +422,7 @@ TEST_CASE("integration: range scan cancellation before continue", "[integration]
     auto highest_mutation = std::max_element(
       mutations.begin(), mutations.end(), [](auto a, auto b) { return a.second.sequence_number() < b.second.sequence_number(); });
 
-    auto ag = couchbase::core::agent_group(integration.io, { { integration.cluster } });
+    auto ag = couchbase::core::agent_group(integration.io, { { std::make_shared<couchbase::core::cluster>(integration.cluster) } });
     ag.open_bucket(integration.ctx.bucket);
     auto agent = ag.get_agent(integration.ctx.bucket);
     REQUIRE(agent.has_value());
@@ -526,7 +526,7 @@ TEST_CASE("integration: range scan cancel during streaming using protocol cancel
     auto highest_mutation = std::max_element(
       mutations.begin(), mutations.end(), [](auto a, auto b) { return a.second.sequence_number() < b.second.sequence_number(); });
 
-    auto ag = couchbase::core::agent_group(integration.io, { { integration.cluster } });
+    auto ag = couchbase::core::agent_group(integration.io, { { std::make_shared<couchbase::core::cluster>(integration.cluster) } });
     ag.open_bucket(integration.ctx.bucket);
     auto agent = ag.get_agent(integration.ctx.bucket);
     REQUIRE(agent.has_value());
@@ -638,7 +638,7 @@ TEST_CASE("integration: range scan cancel during streaming using pending_operati
     auto highest_mutation = std::max_element(
       mutations.begin(), mutations.end(), [](auto a, auto b) { return a.second.sequence_number() < b.second.sequence_number(); });
 
-    auto ag = couchbase::core::agent_group(integration.io, { { integration.cluster } });
+    auto ag = couchbase::core::agent_group(integration.io, { { std::make_shared<couchbase::core::cluster>(integration.cluster) } });
     ag.open_bucket(integration.ctx.bucket);
     auto agent = ag.get_agent(integration.ctx.bucket);
     REQUIRE(agent.has_value());
@@ -740,7 +740,7 @@ TEST_CASE("integration: sampling scan keys only", "[integration]")
     auto highest_mutation = std::max_element(
       mutations.begin(), mutations.end(), [](auto a, auto b) { return a.second.sequence_number() < b.second.sequence_number(); });
 
-    auto ag = couchbase::core::agent_group(integration.io, { { integration.cluster } });
+    auto ag = couchbase::core::agent_group(integration.io, { { std::make_shared<couchbase::core::cluster>(integration.cluster) } });
     ag.open_bucket(integration.ctx.bucket);
     auto agent = ag.get_agent(integration.ctx.bucket);
     REQUIRE(agent.has_value());
@@ -802,7 +802,7 @@ TEST_CASE("integration: manager scan range without content", "[integration]")
 
     auto barrier = std::make_shared<std::promise<tl::expected<std::size_t, std::error_code>>>();
     auto f = barrier->get_future();
-    integration.cluster->with_bucket_configuration(
+    integration.cluster.with_bucket_configuration(
       integration.ctx.bucket, [barrier](std::error_code ec, const couchbase::core::topology::configuration& config) mutable {
           if (ec) {
               return barrier->set_value(tl::unexpected(ec));
@@ -815,7 +815,7 @@ TEST_CASE("integration: manager scan range without content", "[integration]")
     auto number_of_vbuckets = f.get();
     EXPECT_SUCCESS(number_of_vbuckets);
 
-    auto ag = couchbase::core::agent_group(integration.io, { { integration.cluster } });
+    auto ag = couchbase::core::agent_group(integration.io, { { std::make_shared<couchbase::core::cluster>(integration.cluster) } });
     ag.open_bucket(integration.ctx.bucket);
     auto agent = ag.get_agent(integration.ctx.bucket);
     REQUIRE(agent.has_value());
@@ -873,7 +873,7 @@ TEST_CASE("integration: manager scan range with content", "[integration]")
 
     auto barrier = std::make_shared<std::promise<tl::expected<std::size_t, std::error_code>>>();
     auto f = barrier->get_future();
-    integration.cluster->with_bucket_configuration(
+    integration.cluster.with_bucket_configuration(
       integration.ctx.bucket, [barrier](std::error_code ec, const couchbase::core::topology::configuration& config) mutable {
           if (ec) {
               return barrier->set_value(tl::unexpected(ec));
@@ -886,7 +886,7 @@ TEST_CASE("integration: manager scan range with content", "[integration]")
     auto number_of_vbuckets = f.get();
     EXPECT_SUCCESS(number_of_vbuckets);
 
-    auto ag = couchbase::core::agent_group(integration.io, { { integration.cluster } });
+    auto ag = couchbase::core::agent_group(integration.io, { { std::make_shared<couchbase::core::cluster>(integration.cluster) } });
     ag.open_bucket(integration.ctx.bucket);
     auto agent = ag.get_agent(integration.ctx.bucket);
     REQUIRE(agent.has_value());
@@ -946,7 +946,7 @@ TEST_CASE("integration: manager sampling scan with custom collection", "[integra
 
     auto barrier = std::make_shared<std::promise<tl::expected<std::size_t, std::error_code>>>();
     auto f = barrier->get_future();
-    integration.cluster->with_bucket_configuration(
+    integration.cluster.with_bucket_configuration(
       integration.ctx.bucket, [barrier](std::error_code ec, const couchbase::core::topology::configuration& config) mutable {
           if (ec) {
               return barrier->set_value(tl::unexpected(ec));
@@ -959,7 +959,7 @@ TEST_CASE("integration: manager sampling scan with custom collection", "[integra
     auto number_of_vbuckets = f.get();
     EXPECT_SUCCESS(number_of_vbuckets);
 
-    auto ag = couchbase::core::agent_group(integration.io, { { integration.cluster } });
+    auto ag = couchbase::core::agent_group(integration.io, { { std::make_shared<couchbase::core::cluster>(integration.cluster) } });
     ag.open_bucket(integration.ctx.bucket);
     auto agent = ag.get_agent(integration.ctx.bucket);
     REQUIRE(agent.has_value());
@@ -1019,7 +1019,7 @@ TEST_CASE("integration: manager range scan with sort", "[integration]")
 
     auto barrier = std::make_shared<std::promise<tl::expected<std::size_t, std::error_code>>>();
     auto f = barrier->get_future();
-    integration.cluster->with_bucket_configuration(
+    integration.cluster.with_bucket_configuration(
       integration.ctx.bucket, [barrier](std::error_code ec, const couchbase::core::topology::configuration& config) mutable {
           if (ec) {
               return barrier->set_value(tl::unexpected(ec));
@@ -1032,7 +1032,7 @@ TEST_CASE("integration: manager range scan with sort", "[integration]")
     auto number_of_vbuckets = f.get();
     EXPECT_SUCCESS(number_of_vbuckets);
 
-    auto ag = couchbase::core::agent_group(integration.io, { { integration.cluster } });
+    auto ag = couchbase::core::agent_group(integration.io, { { std::make_shared<couchbase::core::cluster>(integration.cluster) } });
     ag.open_bucket(integration.ctx.bucket);
     auto agent = ag.get_agent(integration.ctx.bucket);
     REQUIRE(agent.has_value());

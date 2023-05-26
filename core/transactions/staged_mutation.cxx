@@ -209,8 +209,7 @@ staged_mutation_queue::rollback_insert(attempt_context_impl* ctx, const staged_m
         wrap_durable_request(req, ctx->overall_.config());
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
-        ctx->cluster_ref()->execute(
-          req, [barrier](core::operations::mutate_in_response resp) { barrier->set_value(result::create_from_subdoc_response(resp)); });
+        ctx->cluster_ref().execute(req, [barrier](auto&& resp) { barrier->set_value(result::create_from_subdoc_response(resp)); });
         auto res = wrap_operation_future(f);
         CB_ATTEMPT_CTX_LOG_TRACE(ctx, "rollback result {}", res);
         ec = ctx->hooks_.after_rollback_delete_inserted(ctx, item.doc().id().key());
@@ -266,8 +265,7 @@ staged_mutation_queue::rollback_remove_or_replace(attempt_context_impl* ctx, con
         wrap_durable_request(req, ctx->overall_.config());
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
-        ctx->cluster_ref()->execute(
-          req, [barrier](core::operations::mutate_in_response resp) { barrier->set_value(result::create_from_subdoc_response(resp)); });
+        ctx->cluster_ref().execute(req, [barrier](auto&& resp) { barrier->set_value(result::create_from_subdoc_response(resp)); });
         auto res = wrap_operation_future(f);
         CB_ATTEMPT_CTX_LOG_TRACE(ctx, "rollback result {}", res);
         ec = ctx->hooks_.after_rollback_replace_or_remove(ctx, item.doc().id().key());
@@ -320,9 +318,8 @@ staged_mutation_queue::commit_doc(attempt_context_impl* ctx, staged_mutation& it
                 wrap_durable_request(req, ctx->overall_.config());
                 auto barrier = std::make_shared<std::promise<result>>();
                 auto f = barrier->get_future();
-                ctx->cluster_ref()->execute(req, [barrier](core::operations::insert_response resp) {
-                    barrier->set_value(result::create_from_mutation_response(resp));
-                });
+                ctx->cluster_ref().execute(req,
+                                           [barrier](auto&& resp) { barrier->set_value(result::create_from_mutation_response(resp)); });
                 res = wrap_operation_future(f);
             } else {
                 core::operations::mutate_in_request req{ item.doc().id() };
@@ -338,9 +335,7 @@ staged_mutation_queue::commit_doc(attempt_context_impl* ctx, staged_mutation& it
                 wrap_durable_request(req, ctx->overall_.config());
                 auto barrier = std::make_shared<std::promise<result>>();
                 auto f = barrier->get_future();
-                ctx->cluster_ref()->execute(req, [barrier](core::operations::mutate_in_response resp) {
-                    barrier->set_value(result::create_from_subdoc_response(resp));
-                });
+                ctx->cluster_ref().execute(req, [barrier](auto&& resp) { barrier->set_value(result::create_from_subdoc_response(resp)); });
                 res = wrap_operation_future(f);
             }
             CB_ATTEMPT_CTX_LOG_TRACE(ctx, "commit doc result {}", res);
@@ -392,8 +387,7 @@ staged_mutation_queue::remove_doc(attempt_context_impl* ctx, const staged_mutati
             wrap_durable_request(req, ctx->overall_.config());
             auto barrier = std::make_shared<std::promise<result>>();
             auto f = barrier->get_future();
-            ctx->cluster_ref()->execute(
-              req, [barrier](core::operations::remove_response resp) { barrier->set_value(result::create_from_mutation_response(resp)); });
+            ctx->cluster_ref().execute(req, [barrier](auto&& resp) { barrier->set_value(result::create_from_mutation_response(resp)); });
             wrap_operation_future(f);
             ec = ctx->hooks_.after_doc_removed_pre_retry(ctx, item.doc().id().key());
             if (ec) {

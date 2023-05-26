@@ -17,10 +17,12 @@
 
 #include "wait_until.hxx"
 
+#include "core/logger/logger.hxx"
 #include "core/operations/management/bucket_get.hxx"
 #include "core/operations/management/collections_manifest_get.hxx"
 #include "core/operations/management/search_get_stats.hxx"
 #include "core/operations/management/search_index_get_documents_count.hxx"
+#include "core/operations/management/search_index_get_stats.hxx"
 #include "core/topology/collections_manifest_fmt.hxx"
 #include "core/utils/json.hxx"
 
@@ -29,7 +31,7 @@
 namespace test::utils
 {
 bool
-wait_until_bucket_healthy(std::shared_ptr<couchbase::core::cluster> cluster, const std::string& bucket_name)
+wait_until_bucket_healthy(const couchbase::core::cluster& cluster, const std::string& bucket_name)
 {
     return wait_until([cluster, bucket_name]() {
         couchbase::core::operations::management::bucket_get_request req{ bucket_name };
@@ -50,9 +52,9 @@ wait_until_bucket_healthy(std::shared_ptr<couchbase::core::cluster> cluster, con
 }
 
 bool
-wait_until_collection_manifest_propagated(std::shared_ptr<couchbase::core::cluster> cluster,
+wait_until_collection_manifest_propagated(const couchbase::core::cluster& cluster,
                                           const std::string& bucket_name,
-                                          const std::uint64_t current_manifest_uid,
+                                          std::uint64_t current_manifest_uid,
                                           std::size_t successful_rounds,
                                           std::chrono::seconds total_timeout)
 {
@@ -83,7 +85,7 @@ wait_until_collection_manifest_propagated(std::shared_ptr<couchbase::core::clust
 }
 
 bool
-wait_until_user_present(const std::shared_ptr<couchbase::core::cluster>& cluster, const std::string& username)
+wait_until_user_present(const couchbase::core::cluster& cluster, const std::string& username)
 {
     auto present = test::utils::wait_until([cluster, username]() {
         couchbase::core::operations::management::user_get_request req{};
@@ -129,13 +131,11 @@ to_string(std::optional<std::uint64_t> value) -> std::string
 }
 
 bool
-wait_for_search_pindexes_ready(std::shared_ptr<couchbase::core::cluster> cluster,
-                               const std::string& bucket_name,
-                               const std::string& index_name)
+wait_for_search_pindexes_ready(const couchbase::core::cluster& cluster, const std::string& bucket_name, const std::string& index_name)
 {
     return test::utils::wait_until(
       [&]() {
-          couchbase::core::operations::management::search_index_stats_request req{};
+          couchbase::core::operations::management::search_index_get_stats_request req{};
           auto resp = test::utils::execute(cluster, req);
           if (resp.ctx.ec || resp.stats.empty()) {
               return false;
@@ -158,7 +158,7 @@ wait_for_search_pindexes_ready(std::shared_ptr<couchbase::core::cluster> cluster
 }
 
 bool
-wait_until_indexed(std::shared_ptr<couchbase::core::cluster> cluster, const std::string& index_name, std::uint64_t expected_count)
+wait_until_indexed(const couchbase::core::cluster& cluster, const std::string& index_name, std::uint64_t expected_count)
 {
     return test ::utils::wait_until(
       [cluster = std::move(cluster), &index_name, &expected_count]() {

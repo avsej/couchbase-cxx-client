@@ -17,6 +17,13 @@
 
 #include "test_helper_integration.hxx"
 
+#include "core/document_id_fmt.hxx"
+#include "core/operations/document_get.hxx"
+#include "core/operations/document_insert.hxx"
+#include "core/operations/document_lookup_in.hxx"
+#include "core/operations/document_mutate_in.hxx"
+#include "core/operations/document_upsert.hxx"
+
 #include <couchbase/lookup_in_specs.hxx>
 #include <couchbase/mutate_in_specs.hxx>
 

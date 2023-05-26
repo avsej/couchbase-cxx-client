@@ -19,6 +19,12 @@
 
 #include "profile.hxx"
 
+#include "core/operations/document_get.hxx"
+#include "core/operations/document_mutate_in.hxx"
+#include "core/operations/document_remove.hxx"
+#include "core/operations/document_replace.hxx"
+#include "core/operations/document_upsert.hxx"
+
 #include <couchbase/cluster.hxx>
 
 TEST_CASE("integration: durable operations", "[integration]")

@@ -1,6 +1,6 @@
 /* -*- Mode: C++; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 /*
- *   Copyright 2020-2021 Couchbase, Inc.
+ *   Copyright 2020-Present Couchbase, Inc.
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -17,23 +17,24 @@
 
 #pragma once
 
+#include "core/operations/document_analytics.hxx"
+
+#include <couchbase/analytics_options.hxx>
+
 #include <optional>
 #include <string>
-#include <vector>
 
-namespace couchbase::management
+namespace couchbase::core::impl
 {
-struct query_index {
-    bool is_primary{ false };
-    std::string name;
-    std::string state;
-    std::string type;
-    std::vector<std::string> index_key{};
-    std::optional<std::string> partition{};
-    std::optional<std::string> condition{};
-    std::string bucket_name;
-    std::optional<std::string> scope_name{};
-    std::optional<std::string> collection_name{};
-};
+analytics_error_context
+build_context(core::operations::analytics_response& resp);
 
-} // namespace couchbase::management
+analytics_result
+build_result(core::operations::analytics_response& resp);
+
+core::operations::analytics_request
+build_analytics_request(std::string statement,
+                        analytics_options::built options,
+                        std::optional<std::string> bucket_name,
+                        std::optional<std::string> scope_name);
+} // namespace couchbase::core::impl

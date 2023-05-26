@@ -17,6 +17,9 @@
 
 #include "test_helper_integration.hxx"
 
+#include "core/operations/document_get.hxx"
+#include "core/operations/document_insert.hxx"
+#include "core/operations/document_upsert.hxx"
 #include "core/operations/management/collections.hxx"
 
 TEST_CASE("integration: missing scope and collection", "[integration]")

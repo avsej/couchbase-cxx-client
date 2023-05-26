@@ -19,6 +19,11 @@
 
 #include "utils/move_only_context.hxx"
 
+#include "core/operations/document_analytics.hxx"
+#include "core/operations/document_insert.hxx"
+#include "core/operations/document_lookup_in.hxx"
+#include "core/operations/document_query.hxx"
+#include "core/operations/document_upsert.hxx"
 #include "core/operations/management/collections.hxx"
 #include "core/operations/management/query.hxx"
 #include "couchbase/codec/binary_noop_serializer.hxx"
@@ -69,7 +74,7 @@ TEST_CASE("integration: query with handler capturing non-copyable object", "[int
             CHECK(ctx.payload() == "foobar");
             barrier->set_value(std::move(resp));
         };
-        integration.cluster->execute(req, std::move(handler));
+        integration.cluster.execute(req, std::move(handler));
         auto resp = f.get();
         REQUIRE_SUCCESS(resp.ctx.ec);
     }

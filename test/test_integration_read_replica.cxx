@@ -18,6 +18,11 @@
 #include "test_helper_integration.hxx"
 #include "utils/move_only_context.hxx"
 
+#include "core/operations/document_get_all_replicas.hxx"
+#include "core/operations/document_get_any_replica.hxx"
+#include "core/operations/document_insert.hxx"
+#include "core/operations/document_upsert.hxx"
+
 #include <couchbase/cluster.hxx>
 #include <couchbase/get_any_replica_options.hxx>
 

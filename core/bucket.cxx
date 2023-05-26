@@ -20,6 +20,7 @@
 #include "collection_id_cache_entry.hxx"
 #include "core/mcbp/big_endian.hxx"
 #include "core/mcbp/codec.hxx"
+#include "couchbase/bucket.hxx"
 #include "dispatcher.hxx"
 #include "impl/bootstrap_state_listener.hxx"
 #include "mcbp/operation_queue.hxx"

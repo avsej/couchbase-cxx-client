@@ -17,6 +17,9 @@
 
 #include "benchmark_helper_integration.hxx"
 
+#include "core/operations/document_get.hxx"
+#include "core/operations/document_upsert.hxx"
+
 TEST_CASE("benchmark: get a document", "[benchmark]")
 {
     test::utils::integration_test_guard integration;

@@ -17,6 +17,12 @@
 
 #include "test_helper_integration.hxx"
 
+#include "core/operations/document_append.hxx"
+#include "core/operations/document_decrement.hxx"
+#include "core/operations/document_get.hxx"
+#include "core/operations/document_increment.hxx"
+#include "core/operations/document_prepend.hxx"
+#include "core/operations/document_upsert.hxx"
 #include "core/utils/binary.hxx"
 
 TEST_CASE("integration: append", "[integration]")

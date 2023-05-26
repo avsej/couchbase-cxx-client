@@ -37,7 +37,7 @@ class active_transaction_record
   public:
     // TODO: we should get the kv_timeout and put it in the request (pass in the transactions_config)
     template<typename Callback>
-    static void get_atr(std::shared_ptr<core::cluster> cluster, const core::document_id& atr_id, Callback&& cb)
+    static void get_atr(const core::cluster& cluster, const core::document_id& atr_id, Callback&& cb)
     {
         core::operations::lookup_in_request req{ atr_id };
         req.specs =
@@ -46,7 +46,7 @@ class active_transaction_record
               lookup_in_specs::get(subdoc::lookup_in_macro::vbucket).xattr(),
           }
             .specs();
-        cluster->execute(req, [atr_id, cb = std::move(cb)](core::operations::lookup_in_response resp) mutable {
+        cluster.execute(req, [atr_id, cb = std::move(cb)](core::operations::lookup_in_response resp) mutable {
             try {
                 if (resp.ctx.ec() == couchbase::errc::key_value::document_not_found) {
                     // that's ok, just return an empty one.
@@ -69,7 +69,7 @@ class active_transaction_record
         });
     }
 
-    static std::optional<active_transaction_record> get_atr(std::shared_ptr<core::cluster> cluster, const core::document_id& atr_id)
+    static std::optional<active_transaction_record> get_atr(const core::cluster& cluster, const core::document_id& atr_id)
     {
         auto barrier = std::promise<std::optional<active_transaction_record>>();
         auto f = barrier.get_future();
