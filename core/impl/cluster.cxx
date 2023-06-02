@@ -16,6 +16,7 @@
  */
 
 #include "core/cluster.hxx"
+
 #include "analytics.hxx"
 #include "core/transactions.hxx"
 #include "internal_search_error_context.hxx"
@@ -193,7 +194,7 @@ class cluster_impl : public std::enable_shared_from_this<cluster_impl>
         return core_;
     }
 
-    [[nodiscard]] auto transactions() const -> const std::shared_ptr<couchbase::core::transactions::transactions>&
+    [[nodiscard]] auto transactions() const -> std::shared_ptr<couchbase::core::transactions::transactions>
     {
         return transactions_;
     }
@@ -304,6 +305,9 @@ cluster::connect(asio::io_context& io,
 auto
 cluster::close() -> void
 {
+    if (!impl_) {
+        return;
+    }
     return impl_->close([] { /* do nothing */ });
 }
 

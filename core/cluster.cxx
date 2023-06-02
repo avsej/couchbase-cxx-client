@@ -75,7 +75,7 @@ class ping_collector_impl
     {
     }
 
-    ~ping_collector_impl()
+    ~ping_collector_impl() override
     {
         invoke_handler();
     }
@@ -87,7 +87,7 @@ class ping_collector_impl
 
     void report(diag::endpoint_ping_info&& info) override
     {
-        std::scoped_lock lock(mutex_);
+        const std::scoped_lock lock(mutex_);
         res_.services[info.type].emplace_back(std::move(info));
         if (--expected_ == 0) {
             invoke_handler();

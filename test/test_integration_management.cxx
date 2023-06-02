@@ -865,7 +865,7 @@ namespace couchbase
 {
 auto
 extract_core_cluster(const couchbase::cluster& cluster) -> const core::cluster&;
-}
+} // namespace couchbase
 
 TEST_CASE("integration: user management", "[integration]")
 {

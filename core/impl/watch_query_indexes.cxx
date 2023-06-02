@@ -28,9 +28,9 @@ template<typename Response>
 manager_error_context
 build_context(Response& resp, std::optional<std::error_code> ec = {})
 {
-    return { ec ? ec.value() : resp.ctx.ec, resp.ctx.last_dispatched_to,       resp.ctx.last_dispatched_from,
-             resp.ctx.retry_attempts,       std::move(resp.ctx.retry_reasons), std::move(resp.ctx.client_context_id),
-             resp.ctx.http_status,          std::move(resp.ctx.http_body),     std::move(resp.ctx.path) };
+    return { ec.value_or(resp.ctx.ec), resp.ctx.last_dispatched_to,       resp.ctx.last_dispatched_from,
+             resp.ctx.retry_attempts,  std::move(resp.ctx.retry_reasons), std::move(resp.ctx.client_context_id),
+             resp.ctx.http_status,     std::move(resp.ctx.http_body),     std::move(resp.ctx.path) };
 }
 
 class watch_context : public std::enable_shared_from_this<watch_context>
@@ -46,12 +46,12 @@ class watch_context : public std::enable_shared_from_this<watch_context>
                   watch_query_indexes_handler&& handler)
       : core_(std::move(core))
       , timer_{ core_.io_context() }
-      , options_(options)
+      , options_(std::move(options))
       , timeout_{ options_.timeout.value_or(core_.origin().second.options().query_timeout) }
-      , bucket_name_(bucket_name)
-      , index_names_(index_names)
-      , query_ctx_(query_ctx)
-      , collection_name_(collection_name)
+      , bucket_name_(std::move(bucket_name))
+      , index_names_(std::move(index_names))
+      , query_ctx_(std::move(query_ctx))
+      , collection_name_(std::move(collection_name))
       , handler_(std::move(handler))
     {
     }
@@ -60,52 +60,47 @@ class watch_context : public std::enable_shared_from_this<watch_context>
       : core_(std::move(other.core_))
       , timer_(std::move(other.timer_))
       , options_(std::move(other.options_))
-      , timeout_(std::move(other.timeout_))
+      , timeout_(other.timeout_)
       , bucket_name_(std::move(other.bucket_name_))
       , index_names_(std::move(other.index_names_))
       , query_ctx_(std::move(other.query_ctx_))
       , collection_name_(std::move(other.collection_name_))
       , handler_(std::move(other.handler_))
-      , start_time_(std::move(other.start_time_))
+      , start_time_(other.start_time_)
       , attempts_(other.attempts_.load())
     {
     }
 
     void execute()
     {
-        auto req = make_request();
         CB_LOG_TRACE("watch indexes executing request");
-        auto resp_fn = [ctx = shared_from_this()](auto&& resp) {
-            CB_LOG_TRACE("watch indexes got {}", resp.ctx.ec.message());
-            if (!ctx->check(resp)) {
-                // now we try again
-                ctx->poll();
-            }
-        };
-        core_.execute(req, resp_fn);
+        core_.execute(
+          operations::management::query_index_get_all_request{ bucket_name_, "", collection_name_, query_ctx_, {}, remaining() },
+          [ctx = shared_from_this()](auto&& resp) {
+              CB_LOG_TRACE("watch indexes got {}", resp.ctx.ec.message());
+              if (!ctx->check(resp)) {
+                  // now we try again
+                  ctx->poll();
+              }
+          });
     }
 
   private:
     void finish(manager_error_context error_ctx)
     {
-        handler_(error_ctx);
+        handler_(std::move(error_ctx));
         timer_.cancel();
     }
 
-    std::chrono::milliseconds remaining()
+    std::chrono::milliseconds remaining() const
     {
         return timeout_ - std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time_);
-    }
-
-    operations::management::query_index_get_all_request make_request()
-    {
-        return { bucket_name_, "", collection_name_, query_ctx_, {}, remaining() };
     }
 
     bool check(couchbase::core::operations::management::query_index_get_all_response resp)
     {
         bool complete = true;
-        for (auto name : index_names_) {
+        for (const auto& name : index_names_) {
             auto it = std::find_if(resp.indexes.begin(), resp.indexes.end(), [&](const auto& index) { return index.name == name; });
             complete &= (it != resp.indexes.end() && it->state == "online");
         }
@@ -125,8 +120,12 @@ class watch_context : public std::enable_shared_from_this<watch_context>
     void poll()
     {
         timer_.expires_after(options_.polling_interval);
-        auto timer_f = [ctx = shared_from_this()](asio::error_code) { ctx->execute(); };
-        timer_.async_wait(timer_f);
+        timer_.async_wait([ctx = shared_from_this()](asio::error_code ec) {
+            if (ec == asio::error::operation_aborted) {
+                return;
+            }
+            ctx->execute();
+        });
     }
 
     couchbase::core::cluster core_;
@@ -152,9 +151,14 @@ initiate_watch_query_indexes(couchbase::core::cluster core,
                              std::string collection_name,
                              watch_query_indexes_handler&& handler)
 {
-    auto ctx = std::make_shared<watch_context>(
-      std::move(core), std::move(bucket_name), std::move(index_names), options, query_ctx, collection_name, std::move(handler));
-    ctx->execute();
+    auto ctx = std::make_shared<watch_context>(std::move(core),
+                                               std::move(bucket_name),
+                                               std::move(index_names),
+                                               std::move(options),
+                                               std::move(query_ctx),
+                                               std::move(collection_name),
+                                               std::move(handler));
+    return ctx->execute();
 }
 
 void
@@ -164,7 +168,8 @@ initiate_watch_query_indexes(couchbase::core::cluster core,
                              couchbase::watch_query_indexes_options::built options,
                              watch_query_indexes_handler&& handler)
 {
-    initiate_watch_query_indexes(core, std::move(bucket_name), std::move(index_names), options, {}, "", std::move(handler));
+    return initiate_watch_query_indexes(
+      std::move(core), std::move(bucket_name), std::move(index_names), std::move(options), {}, "", std::move(handler));
 }
 
 } // namespace couchbase::core::impl

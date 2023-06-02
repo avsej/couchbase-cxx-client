@@ -91,7 +91,7 @@ wait_until_user_present(const couchbase::core::cluster& cluster, const std::stri
         couchbase::core::operations::management::user_get_request req{};
         req.username = username;
         auto resp = test::utils::execute(cluster, req);
-        return resp.ctx.ec == couchbase::errc::management::user_exists;
+        return resp.ctx.ec == couchbase::errc::management::user_exists || (!resp.ctx.ec && resp.user.username == username);
     });
     if (present) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
