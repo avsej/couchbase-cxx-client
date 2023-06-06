@@ -251,31 +251,26 @@ class cluster_impl : public std::enable_shared_from_this<cluster_impl>
              typename std::enable_if_t<!std::is_same_v<typename Request::encoded_request_type, io::http_request>, int> = 0>
     void execute(Request request, Handler&& handler)
     {
-        if constexpr (operations::is_compound_operation_v<Request>) {
-            return request.execute(shared_from_this(), std::forward<Handler>(handler));
-        } else {
-            using response_type = typename Request::encoded_response_type;
-            if (stopped_) {
-                return handler(
-                  request.make_response(make_key_value_error_context(errc::network::cluster_closed, request.id), response_type{}));
-            }
-            if (auto bucket = find_bucket_by_name(request.id.bucket()); bucket != nullptr) {
-                return bucket->execute(std::move(request), std::forward<Handler>(handler));
-            }
-            if (request.id.bucket().empty()) {
-                return handler(
-                  request.make_response(make_key_value_error_context(errc::common::bucket_not_found, request.id), response_type{}));
-            }
-            auto bucket_name = request.id.bucket();
-            return open_bucket(bucket_name,
-                               [self = shared_from_this(), request = std::move(request), handler = std::forward<Handler>(handler)](
-                                 std::error_code ec) mutable {
-                                   if (ec) {
-                                       return handler(request.make_response(make_key_value_error_context(ec, request.id), response_type{}));
-                                   }
-                                   return self->execute(std::move(request), std::forward<Handler>(handler));
-                               });
+        using response_type = typename Request::encoded_response_type;
+        if (stopped_) {
+            return handler(request.make_response(make_key_value_error_context(errc::network::cluster_closed, request.id), response_type{}));
         }
+        if (auto bucket = find_bucket_by_name(request.id.bucket()); bucket != nullptr) {
+            return bucket->execute(std::move(request), std::forward<Handler>(handler));
+        }
+        if (request.id.bucket().empty()) {
+            return handler(
+              request.make_response(make_key_value_error_context(errc::common::bucket_not_found, request.id), response_type{}));
+        }
+        auto bucket_name = request.id.bucket();
+        return open_bucket(
+          bucket_name,
+          [self = shared_from_this(), request = std::move(request), handler = std::forward<Handler>(handler)](std::error_code ec) mutable {
+              if (ec) {
+                  return handler(request.make_response(make_key_value_error_context(ec, request.id), response_type{}));
+              }
+              return self->execute(std::move(request), std::forward<Handler>(handler));
+          });
     }
 
     template<class Request,
@@ -741,7 +736,11 @@ cluster::io_context() const -> asio::io_context&
 #define DEFINE_OPERATION(name)                                                                                                             \
     void cluster::execute(operations::name##_request request, utils::movable_function<void(operations::name##_response)>&& handler) const  \
     {                                                                                                                                      \
-        return impl_->execute(std::move(request), std::move(handler));                                                                     \
+        if constexpr (operations::is_compound_operation_v<Request>) {                                                                      \
+            return request.execute(shared_from_this(), std::forward<Handler>(handler));                                                    \
+        } else {                                                                                                                           \
+            return impl_->execute(std::move(request), std::move(handler));                                                                 \
+        }                                                                                                                                  \
     }
 
 DEFINE_OPERATION(analytics)
