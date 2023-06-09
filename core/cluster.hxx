@@ -52,6 +52,16 @@ class cluster
     void with_bucket_configuration(const std::string& bucket_name,
                                    utils::movable_function<void(std::error_code, topology::configuration)>&& handler) const;
 
+
+    template<typename Request, typename Response>
+    void
+    execute(Request request, utils::movable_function<void(Response)>&& handler) const;
+
+    template<>
+    void
+    execute(operations::analytics_request request, utils::movable_function<void(operations::analytics_response)>&& handler) const;
+
+#if 0
 #define DECLARE_OPERATION(name)                                                                                                            \
     void execute(operations::name##_request request, utils::movable_function<void(operations::name##_response)>&& handler) const
 
@@ -169,6 +179,7 @@ class cluster
     DECLARE_ANALYTICS_LINK_OPERATION(create, couchbase_remote);
     DECLARE_ANALYTICS_LINK_OPERATION(create, s3_external);
 #undef DECLARE_ANALYTICS_LINK_OPERATION
+#endif
 
     void diagnostics(std::optional<std::string> report_id, utils::movable_function<void(diag::diagnostics_result)>&& handler) const;
 

@@ -732,18 +732,30 @@ cluster::io_context() const -> asio::io_context&
 {
     return impl_->io_context();
 }
-
 #define DEFINE_OPERATION(name)                                                                                                             \
     void cluster::execute(operations::name##_request request, utils::movable_function<void(operations::name##_response)>&& handler) const  \
     {                                                                                                                                      \
-        if constexpr (operations::is_compound_operation_v<Request>) {                                                                      \
-            return request.execute(shared_from_this(), std::forward<Handler>(handler));                                                    \
+        if constexpr (!std::is_same_v<operations::name##_request::encoded_request_type, io::http_request> &&                               \
+                      operations::is_compound_operation_v<operations::name##_request>) {                                                   \
+            return request.execute(*this, std::move(handler));                                                                             \
         } else {                                                                                                                           \
             return impl_->execute(std::move(request), std::move(handler));                                                                 \
         }                                                                                                                                  \
     }
 
-DEFINE_OPERATION(analytics)
+// DEFINE_OPERATION(analytics)
+
+template<typename Request, typename Response>
+void
+cluster::execute(Request request, utils::movable_function<void(Response)>&& handler) const
+{
+    if constexpr (operations::is_compound_operation_v<Request>) {
+        return request.execute(*this, std::move(handler));
+    } else {
+        return impl_->execute(std::move(request), std::move(handler));
+    }
+}
+#if 0
 DEFINE_OPERATION(append)
 DEFINE_OPERATION(decrement)
 DEFINE_OPERATION(exists)
@@ -860,5 +872,6 @@ DEFINE_ANALYTICS_LINK_OPERATION(replace, s3_external)
 DEFINE_ANALYTICS_LINK_OPERATION(create, azure_blob_external)
 DEFINE_ANALYTICS_LINK_OPERATION(create, couchbase_remote)
 DEFINE_ANALYTICS_LINK_OPERATION(create, s3_external)
+#endif
 
 } // namespace couchbase::core
