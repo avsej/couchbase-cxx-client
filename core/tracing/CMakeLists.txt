@@ -4,6 +4,8 @@ target_link_libraries(
   couchbase_tracing
   PRIVATE project_options
           project_warnings
+    asio
+        Microsoft.GSL::GSL
           fmt::fmt
           spdlog::spdlog)
 target_include_directories(couchbase_tracing PRIVATE

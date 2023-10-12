@@ -13,4 +13,5 @@ target_link_libraries(
   PRIVATE project_options
           project_warnings
           fmt::fmt
-          spdlog::spdlog)
+        Microsoft.GSL::GSL
+        spdlog::spdlog)

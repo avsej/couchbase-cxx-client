@@ -5,6 +5,8 @@ target_link_libraries(
   PRIVATE project_options
           project_warnings
           hdr_histogram_static
+        Microsoft.GSL::GSL
+          asio
           fmt::fmt
           spdlog::spdlog)
 target_include_directories(couchbase_metrics PRIVATE

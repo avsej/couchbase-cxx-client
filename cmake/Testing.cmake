@@ -20,6 +20,8 @@ macro(integration_test name)
     Catch2::Catch2WithMain
     Threads::Threads
     snappy
+          Microsoft.GSL::GSL
+    asio
     couchbase_cxx_client
     test_utils)
   catch_discover_tests(
@@ -49,6 +51,8 @@ macro(transaction_test name)
     Catch2::Catch2WithMain
     Threads::Threads
     snappy
+    Microsoft.GSL::GSL
+    asio
     couchbase_cxx_client
     test_utils)
   catch_discover_tests(
@@ -77,6 +81,8 @@ macro(unit_test name)
     Catch2::Catch2WithMain
     Threads::Threads
     snappy
+          Microsoft.GSL::GSL
+    asio
     couchbase_cxx_client
     test_utils)
   catch_discover_tests(
@@ -105,6 +111,8 @@ macro(integration_benchmark name)
     Catch2::Catch2WithMain
     Threads::Threads
     snappy
+          Microsoft.GSL::GSL
+    asio
     couchbase_cxx_client
     test_utils)
   catch_discover_tests(

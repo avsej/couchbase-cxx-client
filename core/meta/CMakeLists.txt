@@ -5,10 +5,12 @@ target_link_libraries(
   PRIVATE project_options
           project_warnings
           snappy
+asio
+        llhttp::llhttp
+        Microsoft.GSL::GSL
           fmt::fmt
-          spdlog::spdlog)
-target_include_directories(couchbase_meta PRIVATE ${PROJECT_BINARY_DIR}/generated ${PROJECT_SOURCE_DIR}
-                                                  ${PROJECT_SOURCE_DIR}/third_party/http_parser)
+        spdlog::spdlog)
+target_include_directories(couchbase_meta PRIVATE ${PROJECT_BINARY_DIR}/generated ${PROJECT_SOURCE_DIR})
 
 if(NOT COUCHBASE_CXX_CLIENT_POST_LINKED_OPENSSL)
   if (TARGET PkgConfig::PKG_CONFIG_OPENSSL)

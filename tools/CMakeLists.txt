@@ -13,4 +13,6 @@ target_link_libraries(
   cbc
   ${CMAKE_THREAD_LIBS_INIT}
   couchbase_cxx_client
-  docopt)
+        Microsoft.GSL::GSL
+        asio
+        docopt)
