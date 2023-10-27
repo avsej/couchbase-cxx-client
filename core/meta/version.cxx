@@ -32,6 +32,7 @@
 #include <llhttp.h>
 #include <openssl/crypto.h>
 #include <openssl/x509.h>
+#include <simdjson/simdjson_version.h>
 #include <snappy-stubs-public.h>
 #include <spdlog/version.h>
 
@@ -121,6 +122,7 @@ sdk_build_info() -> std::map<std::string, std::string>
     fmt::format("{}.{}.{}", LLHTTP_VERSION_MAJOR, LLHTTP_VERSION_MINOR, LLHTTP_VERSION_PATCH);
   info["hdr_histogram_c"] = HDR_HISTOGRAM_VERSION;
   info["openssl_headers"] = OPENSSL_VERSION_TEXT;
+  info["simdjson"] = SIMDJSON_VERSION;
 #if defined(OPENSSL_VERSION)
   info["openssl_runtime"] = OpenSSL_version(OPENSSL_VERSION);
 #elif defined(SSLEAY_VERSION)

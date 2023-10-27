@@ -516,6 +516,7 @@ foreach(TARGET ${couchbase_cxx_client_LIBRARIES})
             asio
             llhttp::llhttp
             taocpp::json
+            simdjson::simdjson
             snappy
             jsonsl
             couchbase_backtrace

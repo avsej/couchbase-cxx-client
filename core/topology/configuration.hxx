@@ -21,6 +21,9 @@
 #include "core/platform/uuid.h"
 #include "core/service_type.hxx"
 
+#include <fmt/core.h>
+#include <simdjson/padded_string_view.h>
+
 #include <map>
 #include <optional>
 #include <set>
@@ -135,7 +138,13 @@ struct configuration {
                          std::size_t index) const -> std::optional<std::size_t>;
 };
 
-using endpoint = std::pair<std::string, std::string>;
+struct endpoint {
+  std::string_view address;
+  std::uint16_t port;
+};
+
+auto
+parse_configuration(simdjson::padded_string_view input, const endpoint& source) -> configuration;
 
 auto
 make_blank_configuration(const std::string& hostname,
