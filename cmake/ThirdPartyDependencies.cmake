@@ -90,6 +90,23 @@ if(NOT TARGET llhttp::llhttp)
     "BUILD_STATIC_LIBS ON")
 endif()
 
+if(NOT TARGET simdjson::simdjson)
+  cpmaddpackage(
+    NAME
+    simdjson
+    VERSION
+    3.4.0
+    GITHUB_REPOSITORY
+    "simdjson/simdjson"
+    OPTIONS
+    "CMAKE_C_VISIBILITY_PRESET hidden"
+    "CMAKE_CXX_VISIBILITY_PRESET hidden"
+    "CMAKE_POSITION_INDEPENDENT_CODE ON"
+    "BUILD_SHARED_LIBS OFF"
+    "SIMDJSON_DISABLE_DEPRECATED_API OFF"
+    "SIMDJSON_BUILD_STATIC_LIB ON")
+endif()
+
 if(NOT TARGET snappy)
   cpmaddpackage(
     NAME
