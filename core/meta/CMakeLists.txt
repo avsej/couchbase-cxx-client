@@ -9,6 +9,7 @@ target_link_libraries(
           llhttp::llhttp
           Microsoft.GSL::GSL
           fmt::fmt
+          simdjson::simdjson
           spdlog::spdlog)
 target_include_directories(couchbase_meta PRIVATE ${PROJECT_BINARY_DIR}/generated ${PROJECT_SOURCE_DIR}
                                                   ${hdr_histogram_SOURCE_DIR}/include)

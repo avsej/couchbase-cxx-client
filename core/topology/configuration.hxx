@@ -23,6 +23,8 @@
 #include "core/utils/crc32.hxx"
 
 #include <fmt/core.h>
+#include <simdjson/padded_string_view.h>
+
 #include <map>
 #include <optional>
 #include <set>
@@ -160,14 +162,17 @@ struct configuration {
     std::optional<std::size_t> server_by_vbucket(std::uint16_t vbucket, std::size_t index);
 };
 
-using endpoint = std::pair<std::string, std::string>;
+struct endpoint {
+    std::string_view address;
+    std::uint16_t port;
+};
 
 configuration
-parse_configuration(std::string_view input, endpoint source);
+parse_configuration(simdjson::padded_string_view input, const endpoint &source);
 
 configuration
 make_blank_configuration(const std::string& hostname, std::uint16_t plain_port, std::uint16_t tls_port);
 
 configuration
-make_blank_configuration(const std::vector<endpoint>& endpoints, bool use_tls, bool force = false);
+make_blank_configuration(const std::vector<std::pair<std::string, std::string>>& endpoints, bool use_tls, bool force = false);
 } // namespace couchbase::core::topology

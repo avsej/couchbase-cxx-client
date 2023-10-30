@@ -34,6 +34,7 @@
 #include <openssl/x509.h>
 #include <snappy-stubs-public.h>
 #include <spdlog/version.h>
+#include <simdjson/simdjson_version.h>
 
 #include <regex>
 
@@ -109,6 +110,7 @@ sdk_build_info()
     info["snappy"] = fmt::format("{}.{}.{}", SNAPPY_MAJOR, SNAPPY_MINOR, SNAPPY_PATCHLEVEL);
     info["llhttp"] = fmt::format("{}.{}.{}", LLHTTP_VERSION_MAJOR, LLHTTP_VERSION_MINOR, LLHTTP_VERSION_PATCH);
     info["hdr_histogram_c"] = HDR_HISTOGRAM_VERSION;
+    info["simdjson"] = SIMDJSON_VERSION;
     info["openssl_headers"] = OPENSSL_VERSION_TEXT;
 #if defined(OPENSSL_VERSION)
     info["openssl_runtime"] = OpenSSL_version(OPENSSL_VERSION);

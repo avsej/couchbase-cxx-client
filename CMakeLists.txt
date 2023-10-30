@@ -458,6 +458,7 @@ target_link_libraries(
         spdlog::spdlog
         snappy
         jsonsl
+        simdjson::simdjson
         hdr_histogram_static
         couchbase_backtrace
         couchbase_logger
