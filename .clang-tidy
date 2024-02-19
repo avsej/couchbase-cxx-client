@@ -16,6 +16,7 @@ Checks: |-
   -abseil-*,
   -altera-*,
   -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-avoid-do-while,
   -cppcoreguidelines-avoid-non-const-global-variables,
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
