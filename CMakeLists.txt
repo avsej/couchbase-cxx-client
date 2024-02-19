@@ -58,6 +58,23 @@ if(COUCHBASE_CXX_CLIENT_MASTER_PROJECT)
   endif()
 endif()
 
+include(cmake/DetectStandardFilesystem.cmake)
+couchbase_cxx_check_filesystem(couchbase_cxx_client "filesystem" "std::filesystem" "stdc++fs;c++fs" STD_FILESYSTEM)
+if(STD_FILESYSTEM)
+  message(STATUS "Using std::filesystem")
+else()
+  if(APPLE)
+    message(WARNING "Retrying using -ld_classic on MacOS X")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -ld_classic")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -ld_classic")
+    set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -ld_classic")
+    couchbase_cxx_check_filesystem(couchbase_cxx_client "filesystem" "std::filesystem" "stdc++fs;c++fs" STD_FILESYSTEM)
+  endif()
+  if(NOT STD_FILESYSTEM)
+    message(FATAL_ERROR "Couchbase C++ Client requires C++17, including an implementation of std::filesystem.")
+  endif()
+endif()
+
 find_package(Threads REQUIRED)
 
 include(cmake/ThirdPartyDependencies.cmake)
@@ -413,19 +430,6 @@ target_include_directories(couchbase_cxx_client PUBLIC ${PROJECT_SOURCE_DIR} ${P
 target_include_directories(couchbase_cxx_client SYSTEM PUBLIC ${PROJECT_SOURCE_DIR}/third_party/cxx_function
                                                               ${PROJECT_SOURCE_DIR}/third_party/expected/include)
 target_link_libraries(couchbase_cxx_client PRIVATE project_options project_warnings)
-
-include(cmake/DetectStandardFilesystem.cmake)
-couchbase_cxx_check_filesystem(
-  couchbase_cxx_client
-  "filesystem"
-  "std::filesystem"
-  "stdc++fs;c++fs"
-  STD_FILESYSTEM)
-if(STD_FILESYSTEM)
-  message(STATUS "Using std::filesystem")
-else()
-  message(FATAL_ERROR "Couchbase C++ Client requires C++17, including an implementation of std::filesystem.")
-endif()
 
 target_link_libraries(
   couchbase_cxx_client

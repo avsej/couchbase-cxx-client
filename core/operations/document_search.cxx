@@ -192,7 +192,7 @@ search_request::make_response(error_context::search&& ctx, const encoded_respons
                     search_response::search_row row{};
                     row.index = entry.at("index").get_string();
                     row.id = entry.at("id").get_string();
-                    row.score = entry.at("score").as<double>();
+                    row.score = entry.optional<double>("score").value_or(0);
                     if (const auto* locations_map = entry.find("locations"); locations_map != nullptr && locations_map->is_object()) {
                         for (const auto& [field, terms] : locations_map->get_object()) {
                             for (const auto& [term, locations] : terms.get_object()) {

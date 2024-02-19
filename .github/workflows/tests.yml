@@ -7,63 +7,229 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  build_windows:
+    name: windows
     strategy:
       fail-fast: false
       matrix:
-        server:
-          - 7.2.3
-          - 7.1.6
-          - 7.0.5
-        suite:
-          - unit
-          - transaction
-        include:
-          - server: 6.6.6
-            suite: unit
+        os:
+          - windows-2022
+          - windows-2019
+        build_type:
+          - Debug
+          - RelWithDebInfo
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Install dependencies
+        run: |
+          choco install --no-progress nasm
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build tests
+        timeout-minutes: 80
+        env:
+          CB_CMAKE_BUILD_TYPE: ${{ matrix.build_type }}
+          CB_NUMBER_OF_JOBS: 2
+        run: ruby bin/build-tests.rb
+      # - uses: actions/upload-artifact@v4
+      #   with:
+      #     retention-days: 1
+      #     name: bin-windows-${{ matrix.os }}-${{ matrix.build_type }}
+      #     path: |
+      #       cmake-build-tests/test/${{ matrix.build_type }}/test_*.exe
 
-    runs-on: ubuntu-20.04
-    services:
-      couchbase:
-        image: couchbase:enterprise-${{ matrix.server }}
-        ports:
-          - 8091-8096:8091-8096
-          - 11210:11210
-          - 18091-18096:18091-18096
-          - 11207:11207
+  build_alpine:
+    name: alpine
+    runs-on: ubuntu-22.04
+    container:
+      image: alpine:3.18
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type:
+          - Debug
+          - RelWithDebInfo
     steps:
       - name: Install build environment
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y libssl-dev cmake gcc g++ curl gdb
-      - uses: actions/checkout@v2
+          apk update
+          apk add --no-cache build-base bash git cmake g++ gcc linux-headers make openssl openssl-dev ruby
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Initialize couchbase for transactions testing
-        if: ${{ matrix.suite  == 'transaction' }}
-        env:
-          CB_SEC_BUCKET: 'secBucket'
-        run: ./bin/init-cluster
-      - name: Initialize couchbase for non-transactions testing
-        if: ${{ matrix.suite != 'transaction' }}
-        env:
-          CB_TRAVEL_SAMPLE: yes
-        run: ./bin/init-cluster
-      - name: ccache
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          key: ${{ github.job }}
       - name: Build tests
-        timeout-minutes: 40
+        timeout-minutes: 60
         env:
-          CB_TEST_SUITE: ${{ matrix.suite }}
-        run: ./bin/build-tests
-      - name: Check couchbase
-        run: ./bin/check-cluster
+          CB_NUMBER_OF_JOBS: 2
+          CB_CMAKE_BUILD_TYPE: ${{ matrix.build_type }}
+        run:
+          bash bin/build-tests
+      - name: Move test binaries
+        run: |
+          mkdir -p test/tests-${{ matrix.build_type }}
+          find cmake-build-tests/test -perm /u+x -type f -name 'test_*' -exec mv -v -t test/tests-${{ matrix.build_type }} {} +
+
+  build_ubuntu:
+    name: ubuntu
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type:
+          - Debug
+          - RelWithDebInfo
+        compiler:
+          - gcc-11
+          - gcc-12
+          - gcc-13
+          - clang-14
+          - clang-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          max-size: 2G
+          key: ${{ github.job }}-${{ matrix.compiler }}-${{ matrix.build_type }}
+      - name: Build tests
+        timeout-minutes: 60
+        env:
+          CB_NUMBER_OF_JOBS: 2
+          CB_CMAKE_BUILD_TYPE: ${{ matrix.build_type }}
+          CB_COMPILER: ${{ matrix.compiler }}
+        run:
+          bash bin/build-tests
+      - name: Move test binaries
+        run: |
+          mkdir -p test/tests-${{ matrix.compiler }}-${{ matrix.build_type }}
+          find cmake-build-tests/test -perm /u+x -type f -name 'test_*' -exec mv -v -t test/tests-${{ matrix.compiler }}-${{ matrix.build_type }} {} +
+      - uses: actions/upload-artifact@v4
+        if: matrix.compiler == 'gcc-13'
+        with:
+          retention-days: 1
+          name: bin-ubuntu-${{ matrix.compiler }}-${{ matrix.build_type }}
+          path: |
+            bin/run-tests.sh
+            test/data/*
+            test/tests-${{ matrix.compiler }}-${{ matrix.build_type }}/*
+
+  build_macos:
+    name: macos
+    runs-on: macos-13
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type:
+          - Debug
+          - RelWithDebInfo
+        compiler:
+          - gcc-11
+          - gcc-12
+          - gcc-13
+          - clang-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          max-size: 2G
+          key: ${{ github.job }}-${{ matrix.compiler }}-${{ matrix.build_type }}
+      - name: Install CMake
+        run: |
+          curl -L -o cmake-3.28.3-macos-universal.tar.gz https://github.com/Kitware/CMake/releases/download/v3.28.3/cmake-3.28.3-macos-universal.tar.gz
+          tar xf cmake-3.28.3-macos-universal.tar.gz
+          realpath cmake-3.28.3-macos-universal/CMake.app/Contents/bin/cmake
+      - name: Build tests
+        timeout-minutes: 60
+        env:
+          CB_NUMBER_OF_JOBS: 2
+          CB_CMAKE_BUILD_TYPE: ${{ matrix.build_type }}
+          CB_COMPILER: ${{ matrix.compiler }}
+        run:
+          CB_CMAKE=$(realpath cmake-3.28.3-macos-universal/CMake.app/Contents/bin/cmake) bash bin/build-tests
+      - name: Move test binaries
+        run: |
+          mkdir -p test/tests-${{ matrix.compiler }}-${{ matrix.build_type }}
+          find cmake-build-tests/test -perm +rwx -type f -name 'test_*' -print0 | xargs -0 -I {} mv -v {} test/tests-${{ matrix.compiler }}-${{ matrix.build_type }}/
+
+  test_ubuntu:
+    name: test
+    needs: build_ubuntu
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type:
+          - Debug
+          - RelWithDebInfo
+        server:
+          - 7.2.4
+          - 7.1.6
+          - 7.0.5
+          - 6.6.6
+    steps:
+      - name: Install tools
+        run: |
+          sudo apt update && sudo apt install -y valgrind gdb
+      - name: Install cbdinocluster
+        run: |
+          mkdir -p "$HOME/bin"
+          curl -L -o "$HOME/bin/cbdinocluster" https://github.com/couchbaselabs/cbdinocluster/releases/download/v0.0.26/cbdinocluster-linux
+          chmod a+x "$HOME/bin/cbdinocluster"
+          echo "$HOME/bin" >> $GITHUB_PATH
+      - name: Initialize cbdinocluster
+        run: |
+          cbdinocluster -v init --auto
+      - name: Start couchbase cluster
+        env:
+          CLUSTERCONFIG: |
+            nodes:
+              - count: 3
+                version: ${{ matrix.server }}
+                services:
+                  - kv
+                  - n1ql
+                  - index
+                  - fts
+                  - cbas
+            docker:
+              kv-memory: 512
+        run: |
+          CLUSTER_ID=$(cbdinocluster -v allocate --def="${CLUSTERCONFIG}")
+          CONNECTION_STRING=$(cbdinocluster -v connstr "${CLUSTER_ID}")
+          cbdinocluster -v buckets add ${CLUSTER_ID} default --ram-quota-mb=100 --flush-enabled=true
+          echo "CLUSTER_ID=${CLUSTER_ID}" >> "$GITHUB_ENV"
+          echo "TEST_CONNECTION_STRING=${CONNECTION_STRING}?dump_configuration=true" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-ubuntu-gcc-13-${{ matrix.build_type }}
       - name: Run tests
-        timeout-minutes: 40
+        timeout-minutes: 60
         env:
-          TEST_SERVER_VERSION: ${{ matrix.server }}
-          TEST_CONNECTION_STRING: couchbase://127.0.0.1
           TEST_LOG_LEVEL: trace
-        run: ./bin/run-${{ matrix.suite }}-tests
+        run: |
+          bash bin/run-tests.sh
+      - name: Publish Test Report
+        uses: mikepenz/action-junit-report@v4.1.0
+        if: always()
+        with:
+          check_name: 📝 ${{ matrix.server }}, ${{ matrix.build_type }}
+          report_paths: test/**/*.report.xml
+          require_tests: true
+      - name: Collect server logs
+        timeout-minutes: 10
+        if: failure()
+        run: |
+          cbdinocluster -v collect-logs $CLUSTER_ID ./logs
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.build_type }}-${{ matrix.server }}-logs
+          path: |
+            logs/*
+            test/**/*.{log,xml}
+          retention-days: 5

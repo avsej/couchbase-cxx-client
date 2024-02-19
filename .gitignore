@@ -2,9 +2,11 @@
 /build/
 /cmake-build-*/
 /cmake-build-report.tar.gz
+/.idea/couchbase-cxx-client.iml
+/.idea/editor.xml
+/.idea/sonarlint
 /.idea/vcs.xml
 /.idea/workspace.xml
-/.idea/sonarlint
 /.cache
 /.vs
 /.vscode

@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+
+#  Copyright 2020-2021 Couchbase, Inc.
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+PROJECT_ROOT="$( cd "$(dirname "$0")/.." >/dev/null 2>&1 ; pwd -P )"
+
+CB_CMAKE=${CB_CMAKE:-$(which cmake)}
+CB_CC=${CB_CC:-$(which clang)}
+CB_CXX=${CB_CXX:-$(which clang++)}
+if [ "x$(uname -s)" == "xDarwin" ]
+then
+    LLVM_VERSION=$(echo "${CB_CC}" | sed 's/[^0-9]*//g')
+    if [ -z "${LLVM_VERSION}" ]
+    then
+        LLVM_PREFIX="$(brew --prefix llvm 2>/dev/null)"
+    else
+        LLVM_PREFIX="$(brew --prefix llvm@${LLVM_VERSION} 2>/dev/null)"
+    fi
+    if [ ! -z "${LLVM_PREFIX}" ]
+    then
+        CB_CC="${LLVM_PREFIX}/bin/clang"
+        CB_CXX="${LLVM_PREFIX}/bin/clang++"
+        export PATH="${LLVM_PREFIX}/bin:${PATH}"
+    fi
+fi
+
+CB_NUMBER_OF_JOBS=${CB_NUMBER_OF_JOBS:-2}
+
+echo "CB_CC=${CB_CC}"
+echo "CB_CXX=${CB_CXX}"
+echo "CB_CMAKE=${CB_CMAKE}"
+
+set -exuo pipefail
+
+BUILD_DIR="${PROJECT_ROOT}/cmake-build-clang-tidy"
+
+rm -rf "${BUILD_DIR}"
+mkdir -p "${BUILD_DIR}"
+cd "${BUILD_DIR}"
+
+${CB_CMAKE} -DENABLE_CACHE=OFF -DENABLE_CLANG_TIDY=ON ..
+set +e
+${CB_CMAKE} --build . --parallel ${CB_NUMBER_OF_JOBS} --verbose
+STATUS=$?
+set -e
+
+exit ${STATUS}

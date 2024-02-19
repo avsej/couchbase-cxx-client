@@ -46,7 +46,7 @@ unless CB_SANITIZER.empty?
 end
 
 
-cmake_extra_location = [ 
+cmake_extra_location = [
   'C:\Program Files\CMake\bin',
   'C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin',
   'C:\Program Files\Microsoft Visual Studio\2019\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin',
@@ -106,7 +106,10 @@ Dir.chdir(BUILD_DIR) do
   run(CB_CMAKE,
       "-DCMAKE_BUILD_TYPE=#{CB_CMAKE_BUILD_TYPE}",
       "-DCOUCHBASE_CXX_CLIENT_BUILD_DOCS=OFF",
+      "-DCOUCHBASE_CXX_CLIENT_BUILD_SHARED=OFF",
+      "-DCOUCHBASE_CXX_CLIENT_BUILD_EXAMPLES=ON",
       "-DCOUCHBASE_CXX_CLIENT_BUILD_TESTS=ON",
+      "-DCOUCHBASE_CXX_CLIENT_BUILD_TOOLS=ON",
       "-DCACHE_OPTION=#{CB_CACHE_OPTION}",
       *CB_CMAKE_EXTRAS,
       "-B", BUILD_DIR,
