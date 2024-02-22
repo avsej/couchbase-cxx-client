@@ -220,7 +220,7 @@ jobs:
           report_paths: test/**/*.report.xml
           require_tests: true
       - name: Collect server logs
-        timeout-minutes: 10
+        timeout-minutes: 15
         if: failure()
         run: |
           cbdinocluster -v collect-logs $CLUSTER_ID ./logs

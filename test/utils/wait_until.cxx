@@ -20,6 +20,7 @@
 #include "core/logger/logger.hxx"
 #include "core/operations/management/bucket_get.hxx"
 #include "core/operations/management/collections_manifest_get.hxx"
+#include "core/operations/management/freeform.hxx"
 #include "core/operations/management/search_get_stats.hxx"
 #include "core/operations/management/search_index_get_documents_count.hxx"
 #include "core/topology/collections_manifest_fmt.hxx"
@@ -129,11 +130,30 @@ to_string(std::optional<std::uint64_t> value) -> std::string
     return "(empty)";
 }
 
+static bool
+refresh_config_on_search_service(const couchbase::core::cluster& cluster)
+{
+    const couchbase::core::operations::management::freeform_request req{
+        couchbase::core::service_type::search,
+        "POST",
+        "/api/cfgRefresh",
+        {
+          { "content-type", "application/json" },
+        },
+    };
+    auto resp = test::utils::execute(cluster, req);
+    return !resp.ctx.ec;
+}
+
 bool
 wait_for_search_pindexes_ready(const couchbase::core::cluster& cluster, const std::string& bucket_name, const std::string& index_name)
 {
     return test::utils::wait_until(
       [&]() {
+          if (!refresh_config_on_search_service(cluster)) {
+              return false;
+          }
+
           couchbase::core::operations::management::search_get_stats_request req{};
           auto resp = test::utils::execute(cluster, req);
           if (resp.ctx.ec || resp.stats.empty()) {
@@ -161,6 +181,10 @@ wait_until_indexed(const couchbase::core::cluster& cluster, const std::string& i
 {
     return test ::utils::wait_until(
       [cluster = std::move(cluster), &index_name, &expected_count]() {
+          if (!refresh_config_on_search_service(cluster)) {
+              return false;
+          }
+
           couchbase::core::operations::management::search_index_get_documents_count_request req{};
           req.index_name = index_name;
           req.timeout = std::chrono::seconds{ 1 };

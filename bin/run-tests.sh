@@ -25,7 +25,7 @@ echo "TEST_DEPLOYMENT_TYPE=${TEST_DEPLOYMENT_TYPE}"
 
 set -u
 
-[ -f /proc/sys/kernel/core_pattern ] && echo "/proc/sys/kernel/core_pattern:\n$(cat /proc/sys/kernel/core_pattern)"
+[ -f /proc/sys/kernel/core_pattern ] && echo -e "/proc/sys/kernel/core_pattern:\n$(cat /proc/sys/kernel/core_pattern)"
 if [ -e /usr/bin/apport-unpack ]
 then
     mkdir -p $HOME/.config/apport
@@ -43,7 +43,7 @@ mkdir -p logs
 for TEST in $(find ./test/ -type f -name 'test_*' | grep -v transaction)
 do
   chmod a+x $TEST
-  echo "$(date -u) ${TEST}" | tee "${TEST}.stderr.log"
+  echo -e "\n$(date -u) ${TEST}" | tee "${TEST}.stderr.log"
   ls -lh $TEST >> "${TEST}.stderr.log"
   cbdinocluster ps 2>/dev/null >> "${TEST}.stderr.log"
   cbdinocluster get-def $CLUSTER_ID 2>/dev/null >> "${TEST}.stderr.log"

@@ -85,6 +85,7 @@ TEST_CASE("integration: search query")
         req.index = index;
 
         auto resp = test::utils::execute(integration.cluster, req);
+        INFO(resp.ctx.ec.message());
         REQUIRE((!resp.ctx.ec || resp.ctx.ec == couchbase::errc::common::index_exists));
         if (index_name != resp.name) {
             CB_LOG_INFO("update index name \"{}\" -> \"{}\"", index_name, resp.name);
