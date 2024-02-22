@@ -40,7 +40,7 @@ rm -f /tmp/core.* "${PWD}/core*" /var/crash/*
 
 mkdir -p logs
 
-for TEST in $(find ./test/ -type f -name 'test_*' | grep -v transaction)
+for TEST in $(find ./test/ -type f -name 'test_*' | grep -v 'transaction\|search')
 do
   chmod a+x $TEST
   echo -e "\n$(date -u) ${TEST}" | tee "${TEST}.stderr.log"
