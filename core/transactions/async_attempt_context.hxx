@@ -75,10 +75,10 @@ class async_attempt_context
      *           successful, or @ref transaction_operation_failed
      *
      */
-    template<typename Content>
+    template<typename Transcoder = codec::default_json_transcoder, typename Content>
     void replace(const transaction_get_result& document, const Content& content, Callback&& cb)
     {
-        return replace_raw(document, codec::tao_json_serializer::serialize(content), std::move(cb));
+        return replace_raw(document, Transcoder::encode(content), std::move(cb));
     }
     /**
      * Inserts a new document into the specified Couchbase collection.
@@ -94,10 +94,10 @@ class async_attempt_context
      * @param cb callback function called with a @ref transaction_get_result with the new CAS value when
      *           successful, or @ref transaction_operation_failed
      */
-    template<typename Content>
+    template<typename Transcoder = codec::default_json_transcoder, typename Content>
     void insert(const core::document_id& id, const Content& content, Callback&& cb)
     {
-        return insert_raw(id, codec::tao_json_serializer::serialize(content), std::move(cb));
+        return insert_raw(id, Transcoder::encode(content), std::move(cb));
     }
     /**
      * Removes the specified document, using the document's last TransactionDocument#cas
@@ -166,10 +166,10 @@ class async_attempt_context
 
   protected:
     /** @internal */
-    virtual void insert_raw(const core::document_id& id, const std::vector<std::byte>& content, Callback&& cb) = 0;
+    virtual void insert_raw(const core::document_id& id, codec::encoded_value content, Callback&& cb) = 0;
 
     /** @internal */
-    virtual void replace_raw(const transaction_get_result& document, const std::vector<std::byte>& content, Callback&& cb) = 0;
+    virtual void replace_raw(const transaction_get_result& document, codec::encoded_value content, Callback&& cb) = 0;
 };
 
 } // namespace couchbase::core::transactions

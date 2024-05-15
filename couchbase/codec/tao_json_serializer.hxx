@@ -46,10 +46,15 @@ class tao_json_serializer
     template<typename Document>
     static auto serialize([[maybe_unused]] Document document) -> binary
     {
-        if constexpr (std::is_null_pointer_v<Document>) {
-            return core::utils::json::generate_binary(tao::json::null);
-        } else {
-            return core::utils::json::generate_binary(tao::json::value(document));
+        try {
+            if constexpr (std::is_null_pointer_v<Document>) {
+                return core::utils::json::generate_binary(tao::json::null);
+            } else {
+                return core::utils::json::generate_binary(tao::json::value(document));
+            }
+        } catch (const tao::pegtl::parse_error& e) {
+            throw std::system_error(errc::common::encoding_failure,
+                                    std::string("json_transcoder cannot generate document as JSON: ").append(e.message()));
         }
     }
 

@@ -19,6 +19,8 @@
 #include <couchbase/transactions/transaction_query_options.hxx>
 #include <couchbase/transactions/transaction_query_result.hxx>
 
+#include <stdexcept>
+
 namespace couchbase
 {
 class collection;
@@ -55,20 +57,26 @@ class attempt_context
      * Given an id and the content, this inserts a new document into a collection.   Note that currently this content can be either a
      * <std::vector<std::byte>> or an object which can be serialized with the @ref codec::tao_json_serializer.
      *
-     * @tparam Content Type of the contents of the document.
+     * @tparam Document Type of the contents of the document.
      * @param coll Collection in which to insert document.
      * @param id The unique id of the document.
      * @param content The content of the document.
      * @return The result of the operation, which is an @ref error and a @ref transaction_get_result.
      */
-    template<typename Content>
-    std::pair<error, transaction_get_result> insert(const couchbase::collection& coll, const std::string& id, const Content& content)
+    template<typename Transcoder = codec::default_json_transcoder,
+             typename Document,
+             std::enable_if_t<!std::is_same_v<codec::encoded_value, Document>, bool> = true>
+    std::pair<error, transaction_get_result> insert(const couchbase::collection& coll, const std::string& id, const Document& content)
     {
-        if constexpr (std::is_same_v<Content, std::vector<std::byte>>) {
-            return insert_raw(coll, id, content);
-        } else {
-            return insert_raw(coll, id, codec::tao_json_serializer::serialize(content));
+        codec::encoded_value data;
+        try {
+            data = Transcoder::encode(content);
+        } catch (std::system_error& e) {
+            return { error(e.code(), e.what()), {} };
+        } catch (std::runtime_error& e) {
+            return { error(errc::common::encoding_failure, e.what()), {} };
         }
+        return insert_raw(coll, id, data);
     }
 
     /**
@@ -82,14 +90,20 @@ class attempt_context
      * @param content New content of the document.
      * @return The result of the operation, which is an @ref error and a @ref transaction_get_result.
      */
-    template<typename Content>
-    std::pair<error, transaction_get_result> replace(const transaction_get_result& doc, const Content& content)
+    template<typename Transcoder = codec::default_json_transcoder,
+             typename Document,
+             std::enable_if_t<!std::is_same_v<codec::encoded_value, Document>, bool> = true>
+    std::pair<error, transaction_get_result> replace(const transaction_get_result& doc, const Document& content)
     {
-        if constexpr (std::is_same_v<Content, std::vector<std::byte>>) {
-            return replace_raw(doc, content);
-        } else {
-            return replace_raw(doc, codec::tao_json_serializer::serialize(content));
+        codec::encoded_value data;
+        try {
+            data = Transcoder::encode(content);
+        } catch (std::system_error& e) {
+            return { error(e.code(), e.what()), {} };
+        } catch (std::runtime_error& e) {
+            return { error(errc::common::encoding_failure, e.what()), {} };
         }
+        return replace_raw(doc, data);
     }
 
     /**
@@ -127,11 +141,11 @@ class attempt_context
 
   protected:
     /** @private */
-    virtual std::pair<error, transaction_get_result> replace_raw(const transaction_get_result& doc, std::vector<std::byte> content) = 0;
+    virtual std::pair<error, transaction_get_result> replace_raw(const transaction_get_result& doc, codec::encoded_value content) = 0;
     /** @private */
     virtual std::pair<error, transaction_get_result> insert_raw(const couchbase::collection& coll,
                                                                 const std::string& id,
-                                                                std::vector<std::byte> content) = 0;
+                                                                codec::encoded_value document) = 0;
     /** @private */
     virtual std::pair<error, transaction_query_result> do_public_query(const std::string& statement,
                                                                        const transaction_query_options& options,

@@ -132,19 +132,19 @@ transaction_context::get_optional(const core::document_id& id, async_attempt_con
 }
 
 void
-transaction_context::insert(const core::document_id& id, const std::vector<std::byte>& content, async_attempt_context::Callback&& cb)
+transaction_context::insert(const core::document_id& id, codec::encoded_value content, async_attempt_context::Callback&& cb)
 {
     if (current_attempt_context_) {
-        return current_attempt_context_->insert_raw(id, content, std::move(cb));
+        return current_attempt_context_->insert_raw(id, std::move(content), std::move(cb));
     }
     throw transaction_operation_failed(FAIL_OTHER, "no current attempt context");
 }
 
 void
-transaction_context::replace(const transaction_get_result& doc, const std::vector<std::byte>& content, async_attempt_context::Callback&& cb)
+transaction_context::replace(const transaction_get_result& doc, codec::encoded_value content, async_attempt_context::Callback&& cb)
 {
     if (current_attempt_context_) {
-        return current_attempt_context_->replace_raw(doc, content, std::move(cb));
+        return current_attempt_context_->replace_raw(doc, std::move(content), std::move(cb));
     }
     throw transaction_operation_failed(FAIL_OTHER, "no current attempt context");
 }

@@ -16,6 +16,9 @@
 #pragma once
 
 #include "transaction_get_result.hxx"
+
+#include "internal/exceptions_internal.hxx"
+
 #include <couchbase/transactions/transaction_query_options.hxx>
 
 #include <optional>
@@ -79,15 +82,18 @@ class attempt_context
      * @throws transaction_operation_failed which either should not be caught by the lambda, or
      *         rethrown if it is caught.
      */
-    template<typename Content>
+    template<typename Transcoder = codec::default_json_transcoder, typename Content>
     transaction_get_result replace(const transaction_get_result& document, const Content& content)
     {
-        if constexpr (std::is_same_v<Content, std::vector<std::byte>>) {
-            return replace_raw(document, content);
-        } else {
-            return replace_raw(document, codec::tao_json_serializer::serialize(content));
+        codec::encoded_value data;
+        try {
+            data = Transcoder::encode(content);
+        } catch (std::runtime_error& e) {
+            throw transaction_operation_failed(FAIL_OTHER, std::string("failed to encode content as JSON: ") + e.what());
         }
+        return replace_raw(document, data);
     }
+
     /**
      * Inserts a new document into the specified Couchbase collection.
      *
@@ -105,14 +111,16 @@ class attempt_context
      * @throws transaction_operation_failed which either should not be caught by the lambda, or
      *         rethrown if it is caught.
      */
-    template<typename Content>
+    template<typename Transcoder = codec::default_json_transcoder, typename Content>
     transaction_get_result insert(const core::document_id& id, const Content& content)
     {
-        if constexpr (std::is_same_v<Content, std::vector<std::byte>>) {
-            return insert_raw(id, content);
-        } else {
-            return insert_raw(id, codec::tao_json_serializer::serialize(content));
+        codec::encoded_value data;
+        try {
+            data = Transcoder::encode(content);
+        } catch (std::runtime_error& e) {
+            throw transaction_operation_failed(FAIL_OTHER, std::string("failed to encode content as JSON: ") + e.what());
         }
+        return insert_raw(id, data);
     }
     /**
      * Removes the specified document, using the document's last TransactionDocument#cas
@@ -182,10 +190,10 @@ class attempt_context
 
   protected:
     /** @internal */
-    virtual transaction_get_result insert_raw(const core::document_id& id, const std::vector<std::byte>& content) = 0;
+    virtual auto insert_raw(const core::document_id& id, codec::encoded_value content) -> transaction_get_result = 0;
 
     /** @internal */
-    virtual transaction_get_result replace_raw(const transaction_get_result& document, const std::vector<std::byte>& content) = 0;
+    virtual auto replace_raw(const transaction_get_result& document, codec::encoded_value content) -> transaction_get_result = 0;
 
     virtual core::operations::query_response do_core_query(const std::string&,
                                                            const couchbase::transactions::transaction_query_options& opts,

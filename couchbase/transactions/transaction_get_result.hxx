@@ -42,8 +42,8 @@ class transaction_get_result
   private:
     std::shared_ptr<couchbase::core::transactions::transaction_get_result> base_{};
 
-    transaction_get_result(std::shared_ptr<couchbase::core::transactions::transaction_get_result> base)
-      : base_(base)
+    explicit transaction_get_result(std::shared_ptr<couchbase::core::transactions::transaction_get_result> base)
+      : base_(std::move(base))
     {
     }
 
@@ -56,10 +56,19 @@ class transaction_get_result
      *
      * @return content of the document.
      */
-    template<typename Content>
-    [[nodiscard]] Content content() const
+    template<typename Document,
+             typename Transcoder = codec::default_json_transcoder,
+             std::enable_if_t<!codec::is_transcoder_v<Document>, bool> = true,
+             std::enable_if_t<codec::is_transcoder_v<Transcoder>, bool> = true>
+    [[nodiscard]] auto content() const -> Document
     {
-        return codec::tao_json_serializer::deserialize<Content>(content());
+        return Transcoder::template decode<Document>(content());
+    }
+
+    template<typename Transcoder, std::enable_if_t<codec::is_transcoder_v<Transcoder>, bool> = true>
+    [[nodiscard]] auto content() const -> typename Transcoder::document_type
+    {
+        return Transcoder::decode(content());
     }
 
     /**
@@ -67,54 +76,54 @@ class transaction_get_result
      *
      * @return content
      */
-    [[nodiscard]] const std::vector<std::byte>& content() const;
+    [[nodiscard]] const codec::encoded_value& content() const;
 
     /**
      * Copy content into document
      * @param content
      */
-    void content(std::vector<std::byte> content);
+    void content(const codec::encoded_value& content);
 
     /**
      * Move content into document
      *
      * @param content
      */
-    void content(std::vector<std::byte>&& content);
+    void content(codec::encoded_value&& content);
 
     /**
      * Get document id.
      *
      * @return the id of this document.
      */
-    [[nodiscard]] const std::string key() const;
+    [[nodiscard]] auto key() const -> const std::string&;
 
     /**
      * Get the name of the bucket this document is in.
      *
      * @return name of the bucket which contains the document.
      */
-    [[nodiscard]] const std::string bucket() const;
+    [[nodiscard]] auto bucket() const -> const std::string&;
 
     /**
      * Get the name of the scope this document is in.
      *
      * @return name of the scope which contains the document.
      */
-    [[nodiscard]] const std::string scope() const;
+    [[nodiscard]] auto scope() const -> const std::string&;
 
     /**
      * Get the name of the collection this document is in.
      *
      * @return name of the collection which contains the document.
      */
-    [[nodiscard]] const std::string collection() const;
+    [[nodiscard]] auto collection() const -> const std::string&;
 
     /**
      * Get the CAS fot this document
      *
      * @return the CAS of the document.
      */
-    [[nodiscard]] const couchbase::cas cas() const;
+    [[nodiscard]] auto cas() const -> couchbase::cas;
 };
 } // namespace couchbase::transactions

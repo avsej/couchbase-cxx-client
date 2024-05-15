@@ -16,11 +16,14 @@
 
 #pragma once
 
+#include <couchbase/codec/encoded_value.hxx>
+
 #include <fmt/format.h>
+#include <tao/json/value.hpp>
+
 #include <optional>
 #include <ostream>
 #include <string>
-#include <tao/json/value.hpp>
 
 namespace couchbase::core::transactions
 {
@@ -36,7 +39,8 @@ class transaction_links
     std::optional<std::string> staged_transaction_id_;
     std::optional<std::string> staged_attempt_id_;
     std::optional<std::string> staged_operation_id_;
-    std::optional<std::vector<std::byte>> staged_content_;
+    std::optional<codec::encoded_value> staged_content_json_;
+    std::optional<codec::encoded_value> staged_content_binary_;
 
     // for {BACKUP_FIELDS}
     std::optional<std::string> cas_pre_txn_;
@@ -56,7 +60,8 @@ class transaction_links
                       std::optional<std::string> staged_transaction_id,
                       std::optional<std::string> staged_attempt_id,
                       std::optional<std::string> staged_operation_id,
-                      std::optional<std::vector<std::byte>> staged_content,
+                      std::optional<codec::encoded_value> staged_content_json,
+                      std::optional<codec::encoded_value> staged_content_binary,
                       std::optional<std::string> cas_pre_txn,
                       std::optional<std::string> revid_pre_txn,
                       std::optional<std::uint32_t> exptime_pre_txn,
@@ -71,7 +76,8 @@ class transaction_links
       , staged_transaction_id_(std::move(staged_transaction_id))
       , staged_attempt_id_(std::move(staged_attempt_id))
       , staged_operation_id_(std::move(staged_operation_id))
-      , staged_content_(std::move(staged_content))
+      , staged_content_json_(std::move(staged_content_json))
+      , staged_content_binary_(std::move(staged_content_binary))
       , cas_pre_txn_(std::move(cas_pre_txn))
       , revid_pre_txn_(std::move(revid_pre_txn))
       , exptime_pre_txn_(exptime_pre_txn)
@@ -138,10 +144,10 @@ class transaction_links
     {
         return !!(atr_id_);
     }
-    [[nodiscard]] bool has_staged_content() const
-    {
-        return !!(staged_content_);
-    }
+    /* [[nodiscard]] bool has_staged_content() const */
+    /* { */
+    /*     return !!(staged_content_); */
+    /* } */
     [[nodiscard]] bool is_document_being_removed() const
     {
         return (!!op_ && *op_ == "remove");
@@ -217,9 +223,24 @@ class transaction_links
         return crc32_of_staging_;
     }
 
-    [[nodiscard]] std::vector<std::byte> staged_content() const
+    [[nodiscard]] auto has_staged_content() const -> bool
     {
-        return staged_content_.value_or(std::vector<std::byte>{});
+        return staged_content_json_ || staged_content_binary_;
+    }
+
+    [[nodiscard]] codec::encoded_value staged_content_json_or_binary() const
+    {
+        return staged_content_json_.value_or(staged_content_binary_.value_or(codec::encoded_value{}));
+    }
+
+    [[nodiscard]] codec::encoded_value staged_content_json() const
+    {
+        return staged_content_json_.value_or(codec::encoded_value{});
+    }
+
+    [[nodiscard]] codec::encoded_value staged_content_binary() const
+    {
+        return staged_content_binary_.value_or(codec::encoded_value{});
     }
 
     [[nodiscard]] std::optional<tao::json::value> forward_compat() const

@@ -33,7 +33,10 @@ class async_operation_conflict : public std::runtime_error
     }
 };
 struct attempt_mode {
-    enum class modes { KV, QUERY };
+    enum class modes {
+        KV,
+        QUERY
+    };
     modes mode;
     std::string query_node;
 
@@ -70,7 +73,9 @@ class waitable_op_list
     void wait_and_block_ops()
     {
         std::unique_lock<std::mutex> lock(mutex_);
-        cv_ops_.wait(lock, [this]() { return (0 == count_); });
+        cv_ops_.wait(lock, [this]() {
+            return (0 == count_);
+        });
         // we have the lock.  Block all further ops
         allow_ops_ = false;
     }
@@ -85,7 +90,9 @@ class waitable_op_list
         }
         // Another op has set the query_mode_, and hasn't set the
         // query_node_ yet.   So we wait.
-        cv_query_.wait(lock, [this]() { return !mode_.query_node.empty(); });
+        cv_query_.wait(lock, [this]() {
+            return !mode_.query_node.empty();
+        });
         return mode_;
     }
 
@@ -99,7 +106,9 @@ class waitable_op_list
         if (mode_.mode == attempt_mode::modes::KV) {
             // wait until all in_flight ops are done
             CB_TXN_LOG_TRACE("set_query_mode: waiting for in_flight ops to go to 0...");
-            cv_in_flight_.wait(lock, [this]() { return (0 == in_flight_); });
+            cv_in_flight_.wait(lock, [this]() {
+                return (0 == in_flight_);
+            });
             // ok, now no outstanding ops(apart from the query that called this), and I have the lock, so...
             if (mode_.mode == attempt_mode::modes::KV) {
                 CB_TXN_LOG_TRACE("set_query_mode: in_flight ops = 0, we were kv, setting mode to query");
@@ -118,8 +127,12 @@ class waitable_op_list
         // you make it here, and someone else is currently setting the node (a byproduct of
         // calling the callback).  So wait for that.
         CB_TXN_LOG_TRACE("set_query_mode: mode already query, waiting for node to be set...");
-        cv_query_.wait(lock, [this]() { return !mode_.query_node.empty(); });
-        cv_in_flight_.wait(lock, [this]() { return 0 == in_flight_; });
+        cv_query_.wait(lock, [this]() {
+            return !mode_.query_node.empty();
+        });
+        cv_in_flight_.wait(lock, [this]() {
+            return 0 == in_flight_;
+        });
         in_flight_++;
         CB_TXN_LOG_TRACE("set_query_mode: node set, continuing...");
         lock.unlock();

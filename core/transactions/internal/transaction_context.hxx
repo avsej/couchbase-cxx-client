@@ -142,9 +142,9 @@ class transaction_context
 
     void get_optional(const core::document_id& id, async_attempt_context::Callback&& cb);
 
-    void insert(const core::document_id& id, const std::vector<std::byte>& content, async_attempt_context::Callback&& cb);
+    void insert(const core::document_id& id, codec::encoded_value content, async_attempt_context::Callback&& cb);
 
-    void replace(const transaction_get_result& doc, const std::vector<std::byte>& content, async_attempt_context::Callback&& cb);
+    void replace(const transaction_get_result& doc, codec::encoded_value content, async_attempt_context::Callback&& cb);
 
     void remove(const transaction_get_result& doc, async_attempt_context::VoidCallback&& cb);
 

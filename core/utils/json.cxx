@@ -58,7 +58,8 @@ parse(const json_string& input)
 {
     if (input.is_string()) {
         return parse(input.str());
-    } else if (input.is_binary()) {
+    }
+    if (input.is_binary()) {
         return parse_binary(input.bytes());
     }
     return {};

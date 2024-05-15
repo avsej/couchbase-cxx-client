@@ -74,15 +74,12 @@ class async_attempt_context
      * @param content The content of the document.
      * @param handler The handler which implements @ref async_result_handler
      */
-    template<typename Content>
-    void insert(const collection& coll, std::string id, Content&& content, async_result_handler&& handler)
+    template<typename Transcoder = codec::default_json_transcoder,
+             typename Document,
+             std::enable_if_t<!std::is_same_v<codec::encoded_value, Document>, bool> = true>
+    void insert(const collection& coll, std::string id, Document&& content, async_result_handler&& handler)
     {
-        if constexpr (std::is_same_v<Content, std::vector<std::byte>>) {
-            return insert_raw(std::forward<std::vector<std::byte>>(content), std::move(id), content, std::move(handler));
-        } else {
-            // TODO: transcoder support
-            return insert_raw(coll, std::move(id), codec::tao_json_serializer::serialize(content), std::move(handler));
-        }
+        return insert_raw(coll, id, Transcoder::encode(content), std::move(handler));
     }
     /**
      * Replace the contents of a document in a collection.
@@ -95,15 +92,12 @@ class async_attempt_context
      * @param content New content of the document
      * @param handler The handler which implements @ref async_result_handler
      */
-    template<typename Content>
-    void replace(transaction_get_result doc, Content&& content, async_result_handler&& handler)
+    template<typename Transcoder = codec::default_json_transcoder,
+             typename Document,
+             std::enable_if_t<!std::is_same_v<codec::encoded_value, Document>, bool> = true>
+    void replace(transaction_get_result doc, Document&& content, async_result_handler&& handler)
     {
-        if constexpr (std::is_same_v<Content, std::vector<std::byte>>) {
-            return replace_raw(std::move(doc), std::forward<std::vector<std::byte>>(content), std::move(handler));
-        } else {
-            // TODO: transcoder support
-            return replace_raw(std::move(doc), codec::tao_json_serializer::serialize(content), std::move(handler));
-        }
+        return replace_raw(std::move(doc), Transcoder::encode(content), std::move(handler));
     }
     /**
      * Perform a query, within a scope.
@@ -147,9 +141,9 @@ class async_attempt_context
 
   protected:
     /** @private */
-    virtual void insert_raw(const collection& coll, std::string id, std::vector<std::byte> content, async_result_handler&& handler) = 0;
+    virtual void insert_raw(const collection& coll, std::string id, codec::encoded_value content, async_result_handler&& handler) = 0;
     /** @private */
-    virtual void replace_raw(transaction_get_result doc, std::vector<std::byte> content, async_result_handler&& handler) = 0;
+    virtual void replace_raw(transaction_get_result doc, codec::encoded_value content, async_result_handler&& handler) = 0;
     /** @private */
     virtual void query(std::string statement,
                        transaction_query_options opts,

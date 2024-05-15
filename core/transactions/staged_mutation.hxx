@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <couchbase/codec/encoded_value.hxx>
+
 #include "attempt_context_impl.hxx"
 #include "internal/utils.hxx"
 #include "transaction_get_result.hxx"
@@ -27,23 +29,26 @@
 
 namespace couchbase::core::transactions
 {
-enum class staged_mutation_type { INSERT, REMOVE, REPLACE };
+enum class staged_mutation_type {
+    INSERT,
+    REMOVE,
+    REPLACE
+};
 
 class staged_mutation
 {
   private:
     transaction_get_result doc_;
     staged_mutation_type type_;
-    std::vector<std::byte> content_;
+    codec::encoded_value content_;
     std::string operation_id_;
 
   public:
-    template<typename Content>
-    staged_mutation(transaction_get_result& doc,
-                    Content content,
+    staged_mutation(transaction_get_result doc,
+                    codec::encoded_value content,
                     staged_mutation_type type,
                     std::string operation_id = uid_generator::next())
-      : doc_(doc)
+      : doc_(std::move(doc))
       , type_(type)
       , content_(std::move(content))
       , operation_id_(std::move(operation_id))
@@ -55,7 +60,7 @@ class staged_mutation
     staged_mutation& operator=(const staged_mutation& o) = default;
     staged_mutation& operator=(staged_mutation&& o) = default;
 
-    const core::document_id& id() const
+    [[nodiscard]] const core::document_id& id() const
     {
         return doc_.id();
     }
@@ -80,12 +85,22 @@ class staged_mutation
         type_ = type;
     }
 
-    [[nodiscard]] const std::vector<std::byte>& content() const
+    [[nodiscard]] auto is_staged_binary() const -> bool;
+
+    [[nodiscard]] const codec::encoded_value& content() const
     {
         return content_;
     }
 
-    void content(const std::vector<std::byte>& content)
+    /**
+     * @return current user flags before the staging of the document
+     */
+    [[nodiscard]] auto current_user_flags() const -> std::uint32_t
+    {
+        return doc_.content().flags;
+    }
+
+    void content(const codec::encoded_value& content)
     {
         content_ = content;
     }

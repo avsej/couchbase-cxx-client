@@ -19,15 +19,18 @@
 #include "core/transactions/error_class.hxx"
 #include "core/transactions/exceptions.hxx"
 #include "core/transactions/result.hxx"
-#include "transaction_context.hxx"
 
 #include <couchbase/transaction_op_error_context.hxx>
+
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <list>
 
 namespace couchbase::core::transactions
 {
+class transaction_context;
+
 //  only used in ambiguity resolution during atr_commit
 class retry_atr_commit : public std::runtime_error
 {
@@ -96,11 +99,12 @@ class client_error : public std::runtime_error
       , ec_(ec)
     {
     }
-    error_class ec() const
+
+    [[nodiscard]] error_class ec() const
     {
         return ec_;
     }
-    std::optional<result> res() const
+    [[nodiscard]] std::optional<result> res() const
     {
         return res_;
     }
@@ -221,27 +225,27 @@ class transaction_operation_failed : public std::runtime_error
         return *this;
     }
 
-    bool should_rollback() const
+    [[nodiscard]] bool should_rollback() const
     {
         return rollback_;
     }
 
-    bool should_retry() const
+    [[nodiscard]] bool should_retry() const
     {
         return retry_;
     }
 
-    error_class ec() const
+    [[nodiscard]] error_class ec() const
     {
         return ec_;
     }
 
-    external_exception cause() const
+    [[nodiscard]] external_exception cause() const
     {
         return cause_;
     }
 
-    final_error to_raise() const
+    [[nodiscard]] final_error to_raise() const
     {
         return to_raise_;
     }
@@ -261,24 +265,21 @@ class transaction_operation_failed : public std::runtime_error
         }
     }
 
-    std::optional<transaction_exception> get_final_exception(const transaction_context& context) const
+    [[nodiscard]] std::optional<transaction_exception> get_final_exception(const transaction_context& context) const
     {
-        {
-
-            switch (to_raise_) {
-                case EXPIRED:
-                    return transaction_exception(*this, context, failure_type::EXPIRY);
-                case AMBIGUOUS:
-                    return transaction_exception(*this, context, failure_type::COMMIT_AMBIGUOUS);
-                case FAILED_POST_COMMIT:
-                    return std::nullopt;
-                default:
-                    return transaction_exception(*this, context, failure_type::FAIL);
-            }
+        switch (to_raise_) {
+            case EXPIRED:
+                return transaction_exception(*this, context, failure_type::EXPIRY);
+            case AMBIGUOUS:
+                return transaction_exception(*this, context, failure_type::COMMIT_AMBIGUOUS);
+            case FAILED_POST_COMMIT:
+                return std::nullopt;
+            default:
+                return transaction_exception(*this, context, failure_type::FAIL);
         }
     }
 
-    transaction_op_error_context get_error_ctx() const
+    [[nodiscard]] transaction_op_error_context get_error_ctx() const
     {
         errc::transaction_op ec = transaction_op_errc_from_external_exception(cause_);
         return { ec };
@@ -360,87 +361,3 @@ class test_fail_other : public client_error
 };
 } // namespace internal
 } // namespace couchbase::core::transactions
-
-template<>
-struct fmt::formatter<couchbase::core::transactions::error_class> {
-    template<typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
-    {
-        return ctx.begin();
-    }
-
-    template<typename FormatContext>
-    auto format(couchbase::core::transactions::error_class ec, FormatContext& ctx) const
-    {
-        string_view name = "UNKNOWN ERROR CLASS";
-        switch (ec) {
-            case couchbase::core::transactions::FAIL_HARD:
-                name = "FAIL_HARD";
-                break;
-            case couchbase::core::transactions::FAIL_OTHER:
-                name = "FAIL_OTHER";
-                break;
-            case couchbase::core::transactions::FAIL_TRANSIENT:
-                name = "FAIL_TRANSIENT";
-                break;
-            case couchbase::core::transactions::FAIL_AMBIGUOUS:
-                name = "FAIL_AMBIGUOUS";
-                break;
-            case couchbase::core::transactions::FAIL_DOC_ALREADY_EXISTS:
-                name = "FAIL_DOC_ALREADY_EXISTS";
-                break;
-            case couchbase::core::transactions::FAIL_DOC_NOT_FOUND:
-                name = "FAIL_DOC_NOT_FOUND";
-                break;
-            case couchbase::core::transactions::FAIL_PATH_NOT_FOUND:
-                name = "FAIL_PATH_NOT_FOUND";
-                break;
-            case couchbase::core::transactions::FAIL_CAS_MISMATCH:
-                name = "FAIL_CAS_MISMATCH";
-                break;
-            case couchbase::core::transactions::FAIL_WRITE_WRITE_CONFLICT:
-                name = "FAIL_WRITE_WRITE_CONFLICT";
-                break;
-            case couchbase::core::transactions::FAIL_ATR_FULL:
-                name = "FAIL_ATR_FULL";
-                break;
-            case couchbase::core::transactions::FAIL_PATH_ALREADY_EXISTS:
-                name = "FAIL_PATH_ALREADY_EXISTS";
-                break;
-            case couchbase::core::transactions::FAIL_EXPIRY:
-                name = "FAIL_EXPIRY";
-                break;
-        }
-        return format_to(ctx.out(), "{}", name);
-    }
-};
-
-template<>
-struct fmt::formatter<couchbase::core::transactions::final_error> {
-    template<typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
-    {
-        return ctx.begin();
-    }
-
-    template<typename FormatContext>
-    auto format(couchbase::core::transactions::final_error to_raise, FormatContext& ctx) const
-    {
-        string_view name = "UNKNOWN FINAL ERROR";
-        switch (to_raise) {
-            case couchbase::core::transactions::FAILED:
-                name = "FAILED";
-                break;
-            case couchbase::core::transactions::EXPIRED:
-                name = "EXPIRED";
-                break;
-            case couchbase::core::transactions::FAILED_POST_COMMIT:
-                name = "FAILED_POST_COMMIT";
-                break;
-            case couchbase::core::transactions::AMBIGUOUS:
-                name = "AMBIGUOUS";
-                break;
-        }
-        return format_to(ctx.out(), "{}", name);
-    }
-};

@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include "core/error_context/query.hxx"
 #include "error_class.hxx"
 
 #include <couchbase/error_codes.hxx>
@@ -91,7 +90,8 @@ class transaction_exception : public std::runtime_error
      *
      * @returns Internal state of transaction.
      */
-    std::pair<couchbase::transaction_error_context, couchbase::transactions::transaction_result> get_transaction_result() const
+    [[nodiscard]] std::pair<couchbase::transaction_error_context, couchbase::transactions::transaction_result> get_transaction_result()
+      const
     {
         return { error_context(), { result_.transaction_id, result_.unstaging_complete } };
     }
@@ -101,7 +101,7 @@ class transaction_exception : public std::runtime_error
      *
      * @returns The underlying cause for this exception.
      */
-    external_exception cause() const
+    [[nodiscard]] external_exception cause() const
     {
         return cause_;
     }
@@ -109,7 +109,7 @@ class transaction_exception : public std::runtime_error
      * @brief The type of the exception - see @ref failure_type
      * @return The failure type.
      */
-    failure_type type() const
+    [[nodiscard]] failure_type type() const
     {
         return type_;
     }

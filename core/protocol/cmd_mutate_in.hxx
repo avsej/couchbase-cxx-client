@@ -112,6 +112,7 @@ class mutate_in_request_body
     std::vector<std::byte> extras_{};
     std::vector<std::byte> value_{};
 
+    std::optional<std::uint32_t> user_flags_{};
     std::uint32_t expiry_{ 0 };
     std::byte flags_{ 0 };
     std::vector<couchbase::core::impl::subdoc::command> specs_;
@@ -119,6 +120,11 @@ class mutate_in_request_body
 
   public:
     void id(const document_id& id);
+
+    void user_flags(std::uint32_t value)
+    {
+        user_flags_ = value;
+    }
 
     void expiry(std::uint32_t value)
     {

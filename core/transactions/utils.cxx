@@ -14,10 +14,13 @@
  *   limitations under the License.
  */
 
+#include "internal/utils.hxx"
+
 #include "core/operations.hxx"
 #include "core/operations/management/bucket_get_all.hxx"
 
-#include "internal/utils.hxx"
+#include <couchbase/collection.hxx>
+#include <couchbase/scope.hxx>
 
 namespace couchbase::core::transactions
 {
@@ -97,7 +100,9 @@ wait_for_hook(std::function<void(utils::movable_function<void(std::optional<erro
 {
     auto hook_barrier = std::make_shared<std::promise<std::optional<error_class>>>();
     auto hook_future = hook_barrier->get_future();
-    hook([hook_barrier](std::optional<error_class> ec) mutable { return hook_barrier->set_value(ec); });
+    hook([hook_barrier](std::optional<error_class> ec) mutable {
+        return hook_barrier->set_value(ec);
+    });
     return hook_future.get();
 }
 
