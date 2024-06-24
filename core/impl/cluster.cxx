@@ -32,10 +32,13 @@
 #include "query.hxx"
 #include "search.hxx"
 
-#include <asio/bind_executor.hpp>
-#include <asio/post.hpp>
 #include <couchbase/bucket.hxx>
 #include <couchbase/cluster.hxx>
+
+#include <fmt/ostream.h>
+
+#include <asio/bind_executor.hpp>
+#include <asio/post.hpp>
 
 namespace couchbase
 {
@@ -192,7 +195,14 @@ public:
     future.get();
 
     io_.stop();
-    io_thread_.join();
+    if (io_thread_.joinable()) {
+      if (std::this_thread::get_id() == io_thread_.get_id()) {
+        CB_LOG_ERROR(
+          "Attempt to destroy cluster object (public API) in IO thread id={} might cause deadlock",
+          fmt::streamed(io_thread_.get_id()));
+      }
+      io_thread_.join();
+    }
   }
 
   void open(const std::string& connection_string,
