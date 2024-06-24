@@ -189,20 +189,10 @@ public:
   {
     std::promise<void> barrier;
     auto future = barrier.get_future();
-    close([&barrier] {
+    close([&barrier]() {
       barrier.set_value();
     });
     future.get();
-
-    io_.stop();
-    if (io_thread_.joinable()) {
-      if (std::this_thread::get_id() == io_thread_.get_id()) {
-        CB_LOG_ERROR(
-          "Attempt to destroy cluster object (public API) in IO thread id={} might cause deadlock",
-          fmt::streamed(io_thread_.get_id()));
-      }
-      io_thread_.join();
-    }
   }
 
   void open(const std::string& connection_string,
@@ -213,8 +203,11 @@ public:
       options_to_origin(connection_string, options),
       [impl = shared_from_this(), handler = std::move(handler)](std::error_code ec) mutable {
         if (ec) {
+          fmt::println(stderr, "3. failed to open bucket, use_count: {}", impl.use_count());
           return handler(ec, {});
         }
+        fmt::println(
+          stderr, "connected to bucket, create transactions now, use_count: {}", impl.use_count());
         return core::transactions::transactions::create(
           impl->core_,
           impl->core_.origin().second.options().transactions,
@@ -323,11 +316,24 @@ public:
 
   void close(core::utils::movable_function<void()> handler)
   {
-    if (auto txns = std::move(transactions_); txns != nullptr) {
-      // blocks until cleanup is finished
-      txns->close();
-    }
-    return core_.close(std::move(handler));
+    // Spawn new thread to avoid joining IO thread from the same thread
+    std::thread([self = shared_from_this(), handler = std::move(handler)]() mutable {
+      if (auto txns = std::move(self->transactions_); txns != nullptr) {
+        // blocks until cleanup is finished
+        txns->close();
+      }
+      std::promise<void> barrier;
+      auto future = barrier.get_future();
+      self->core_.close([&barrier]() {
+        barrier.set_value();
+      });
+      future.get();
+      self->io_.stop();
+      if (self->io_thread_.joinable()) {
+        self->io_thread_.join();
+      }
+      handler();
+    }).detach();
   }
 
   [[nodiscard]] auto core() const -> const core::cluster&
@@ -487,7 +493,13 @@ cluster::connect(const std::string& connection_string,
       barrier->set_value({ std::move(err), std::move(c) });
     });
     auto [err, c] = future.get();
+    std::string msg = err.ec().message();
     handler(std::move(err), std::move(c));
+    fmt::println(stderr,
+                 "2. impl is null: {}, impl.use_count(): {}, err: {}",
+                 impl == nullptr,
+                 impl == nullptr ? "(none)" : std::to_string(impl.use_count()),
+                 msg);
   }).detach();
 }
 

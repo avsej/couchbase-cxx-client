@@ -2170,6 +2170,7 @@ TEST_CASE("integration: user management", "[integration]")
       auto options_outdated = couchbase::cluster_options(user_name, integration.ctx.password);
       auto options_updated = couchbase::cluster_options(user_name, "newPassword");
 
+      fmt::println(stderr, "Create new user and upsert");
       {
         // Create new user and upsert
         couchbase::core::management::rbac::user new_user{ user_name };
@@ -2188,6 +2189,7 @@ TEST_CASE("integration: user management", "[integration]")
         cluster.close().get();
       }
 
+      fmt::println(stderr, "Connect with new credentials and change password");
       {
         // Connect with new credentials and change password
         auto [ec_new, cluster_new] =
@@ -2202,11 +2204,14 @@ TEST_CASE("integration: user management", "[integration]")
         cluster_new.close().get();
       }
 
+      fmt::println(stderr, "Connect with old credentials should fail");
       {
         // Connect with old credentials, should fail
-        auto [err_fail, cluster_fail] =
-          couchbase::cluster::connect(integration.ctx.connection_string, options_outdated).get();
-        REQUIRE(err_fail.ec() == couchbase::errc::common::authentication_failure);
+          for (std::size_t i = 0; i < 1000; ++i) {
+              auto [err_fail, cluster_fail] =
+                  couchbase::cluster::connect(integration.ctx.connection_string, options_outdated).get();
+              REQUIRE(err_fail.ec() == couchbase::errc::common::authentication_failure);
+          }
 
         // Make connection with new credentials, should succeed
         auto [err_success, cluster_success] =
