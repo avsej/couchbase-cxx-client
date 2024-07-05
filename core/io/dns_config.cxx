@@ -105,7 +105,10 @@ load_resolv_conf()
   return {};
 }
 #else
-static constexpr auto default_resolv_conf_path = "/etc/resolv.conf";
+namespace
+{
+constexpr auto default_resolv_conf_path = "/etc/resolv.conf";
+} // namespace
 
 auto
 load_resolv_conf(const char* conf_path) -> std::string
@@ -143,11 +146,11 @@ load_resolv_conf(const char* conf_path) -> std::string
   return {};
 }
 #endif
-static std::once_flag system_config_initialized_flag;
 
 auto
 dns_config::system_config() -> const dns_config&
 {
+  static std::once_flag system_config_initialized_flag;
   static dns_config instance{};
 
   std::call_once(system_config_initialized_flag, []() {

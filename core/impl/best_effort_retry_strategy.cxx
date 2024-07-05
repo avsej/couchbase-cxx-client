@@ -17,9 +17,19 @@
 
 #include <couchbase/best_effort_retry_strategy.hxx>
 
-#include <fmt/core.h>
+#include <couchbase/retry_action.hxx>
+#include <couchbase/retry_reason.hxx>
+#include <couchbase/retry_request.hxx>
 
+#include <fmt/format.h>
+
+#include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <utility>
 
 namespace couchbase
 {

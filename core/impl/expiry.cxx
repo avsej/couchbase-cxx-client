@@ -19,6 +19,11 @@
 #include <couchbase/expiry.hxx>
 
 #include <fmt/chrono.h>
+#include <fmt/format.h>
+
+#include <chrono>
+#include <cstdint>
+#include <limits>
 
 namespace couchbase::core::impl
 {
@@ -58,11 +63,11 @@ expiry_relative(std::chrono::seconds expiry) -> std::uint32_t
   if (expiry > latest_valid_expiry_duration) {
     throw std::system_error(
       errc::common::invalid_argument,
-      fmt::format("When specifying expiry as a duration, it must not be longer than {} seconds, "
-                  "but got {}. If "
-                  "you truly require a longer expiry, please specify it as an time_point instead.",
-                  latest_valid_expiry_duration.count(),
-                  expiry.count()));
+      fmt::format(
+        "When specifying expiry as a duration, it must not be longer than {} seconds, but got {}. "
+        "If you truly require a longer expiry, please specify it as an time_point instead.",
+        latest_valid_expiry_duration.count(),
+        expiry.count()));
   }
 
   if (expiry < relative_expiry_cutoff_seconds) {

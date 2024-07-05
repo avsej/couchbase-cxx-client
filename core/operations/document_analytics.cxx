@@ -45,6 +45,7 @@ analytics_request::encode_to(analytics_request::encoded_request_type& encoded,
     }
   } else {
     std::vector<tao::json::value> parameters;
+    parameters.reserve(positional_parameters.size());
     for (const auto& value : positional_parameters) {
       parameters.emplace_back(utils::json::parse(value));
     }
