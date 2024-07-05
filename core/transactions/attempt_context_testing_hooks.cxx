@@ -21,6 +21,7 @@ namespace couchbase::core::transactions
 {
 namespace
 {
+// NOLINTBEGIN(performance-unnecessary-value-param)
 inline void
 noop1(std::shared_ptr<attempt_context> /* ctx */,
       utils::movable_function<void(std::optional<error_class>)>&& handler)
@@ -49,6 +50,7 @@ noop4(std::shared_ptr<attempt_context> /* ctx */,
 {
   return false;
 }
+// NOLINTEND(performance-unnecessary-value-param)
 } // namespace
 
 attempt_context_testing_hooks::attempt_context_testing_hooks()

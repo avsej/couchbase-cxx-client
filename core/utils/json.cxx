@@ -112,7 +112,7 @@ private:
     buffer_.insert(buffer_.end(), begin, begin + data.size());
   }
 
-  inline void escape(const std::string_view s)
+  void escape(const std::string_view s)
   {
     static std::array h{
       std::byte{ '0' }, std::byte{ '1' }, std::byte{ '2' }, std::byte{ '3' },
@@ -156,8 +156,10 @@ private:
               std::byte{ 'u' },
               std::byte{ '0' },
               std::byte{ '0' },
+              // NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index)
               std::byte{ h[(c & 0xf0) >> 4] },
               std::byte{ h[c & 0x0f] },
+              // NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
             });
         }
       } else {
@@ -207,6 +209,7 @@ public:
   void number(const std::int64_t v)
   {
     next();
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays)
     char b[24]{};
     const char* s = tao::json::itoa::i64toa(v, b);
     write({ b, static_cast<std::size_t>(s - b) });
@@ -215,6 +218,7 @@ public:
   void number(const std::uint64_t v)
   {
     next();
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays)
     char b[24]{};
     const char* s = tao::json::itoa::u64toa(v, b);
     write({ b, static_cast<std::size_t>(s - b) });
@@ -227,7 +231,8 @@ public:
       // if this throws, consider using non_finite_to_* transformers
       throw std::runtime_error("non-finite double value invalid for JSON string representation");
     }
-    char b[28];
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays)
+    char b[28]{};
     const auto s = tao::json::ryu::d2s_finite(v, b);
     write({ b, s });
   }
