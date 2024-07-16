@@ -50,9 +50,11 @@ if(ENABLE_CLANG_TIDY)
 endif()
 
 if(ENABLE_INCLUDE_WHAT_YOU_USE)
-  find_program(INCLUDE_WHAT_YOU_USE include-what-you-use)
+  find_program(INCLUDE_WHAT_YOU_USE NAMES include-what-you-use iwyu)
+
   if(INCLUDE_WHAT_YOU_USE)
-    set(CMAKE_CXX_INCLUDE_WHAT_YOU_USE ${INCLUDE_WHAT_YOU_USE})
+    set(CMAKE_CXX_INCLUDE_WHAT_YOU_USE
+        "${INCLUDE_WHAT_YOU_USE};-Xiwyu;--comment_style=none;-Xiwyu;--transitive_includes_only;-Xiwyu;--cxx17ns;-Xiwyu;--quoted_includes_first;-Xiwyu;--mapping_file=${PROJECT_SOURCE_DIR}/.iwyu/couchbase-core.imp")
   else()
     message(SEND_ERROR "include-what-you-use requested but executable not found")
   endif()

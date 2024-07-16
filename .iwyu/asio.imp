@@ -1,0 +1,6 @@
+[
+  { include: [ "<asio/detail/concurrency_hint.hpp>", private, "<asio/io_context.hpp>", public ] },
+  { include: [ "@<asio/impl/io_context.*>", private, "<asio/io_context.hpp>", public ] },
+  { include: [ "@<asio/impl/execution_context.*>", private, "<asio/execution_context.hpp>", public ] },
+  { include: [ "@<asio/detail/.*/scheduler.*>", private, "<asio/io_context.hpp>", public ] },
+]

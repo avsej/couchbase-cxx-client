@@ -1,0 +1,7 @@
+# Default include mappings for Couchbase Core library
+# https://github.com/include-what-you-use/include-what-you-use/blob/master/docs/IWYUMappings.md
+[
+  { ref: gcc.imp },
+  { ref: libcxx.imp },
+  { ref: asio.imp },
+]
