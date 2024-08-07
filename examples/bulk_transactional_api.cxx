@@ -15,6 +15,7 @@
  *   limitations under the License.
  */
 
+#include "couchbase/logger.hxx"
 #include <couchbase/cluster.hxx>
 #include <couchbase/fmt/error.hxx>
 #include <couchbase/transactions.hxx>
@@ -23,13 +24,83 @@
 #include <fmt/format.h>
 #include <tao/json/to_string.hpp>
 
+#include <fstream>
+#include <ios>
+#include <iostream>
+#include <math.h>
+#include <string>
+#include <unistd.h>
+
 #include <chrono>
+#include <cstdlib>
 #include <future>
 #include <random>
+#include <set>
 #include <system_error>
+#include <time.h>
+
+using namespace std;
+
+#ifdef __linux__
+void
+mem_usage(double& vm_usage, double& resident_set)
+{
+  vm_usage = 0.0;
+  resident_set = 0.0;
+  ifstream stat_stream("/proc/self/stat", ios_base::in); // get info from proc directory
+  // create some variables to get info
+  string pid, comm, state, ppid, pgrp, session, tty_nr;
+  string tpgid, flags, minflt, cminflt, majflt, cmajflt;
+  string utime, stime, cutime, cstime, priority, nice;
+  string O, itrealvalue, starttime;
+  unsigned long vsize;
+  long rss;
+  stat_stream >> pid >> comm >> state >> ppid >> pgrp >> session >> tty_nr >> tpgid >> flags >>
+    minflt >> cminflt >> majflt >> cmajflt >> utime >> stime >> cutime >> cstime >> priority >>
+    nice >> O >> itrealvalue >> starttime >> vsize >> rss; // don't care about the rest
+  stat_stream.close();
+  long page_size_kb = sysconf(_SC_PAGE_SIZE) / 1024;
+  vm_usage = vsize / 1024.0;
+  resident_set = rss * page_size_kb;
+}
+#else
+#include <mach/mach.h>
+
+void
+mem_usage(double& vm_usage, double& resident_set)
+{
+  vm_usage = 0.0;
+  resident_set = 0.0;
+
+  mach_task_basic_info info{};
+  mach_msg_type_number_t infoCount = MACH_TASK_BASIC_INFO_COUNT;
+
+  if (task_info(
+        mach_task_self(), MACH_TASK_BASIC_INFO, reinterpret_cast<task_info_t>(&info), &infoCount) ==
+      KERN_SUCCESS) {
+    vm_usage = static_cast<double>(info.virtual_size) / 1024.0 / 1024.0;
+    resident_set = static_cast<double>(info.resident_size) / 1024.0;
+  }
+}
+#endif
+
+std::string
+GenerateString()
+{
+  static const std::vector<char> characters{ 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I',
+                                             'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R',
+                                             'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z' };
+  static int numOfChars = characters.size();
+  std::string output;
+  for (int i = 0; i < numOfChars * 4; ++i) {
+    output += characters[rand() % numOfChars];
+  }
+
+  return output;
+}
 
 struct program_arguments {
-  std::string connection_string{ "couchbase://127.0.0.1" };
+  std::string connection_string{ "couchbase://now.its.hidden.com" };
   std::string username{ "Administrator" };
   std::string password{ "password" };
   std::string bucket_name{ "default" };
@@ -112,11 +183,9 @@ run_workload_sequential(const std::shared_ptr<couchbase::transactions::transacti
                         const couchbase::collection& collection,
                         const program_arguments& arguments)
 {
-  if (arguments.number_of_operations == 0) {
+  if (arguments.number_of_operations <= 0) {
     return;
   }
-
-  fmt::print("\n===== SEQUENTIAL\n");
 
   const std::string document_id_prefix{ "tx_sequential" };
   std::vector<std::string> document_ids;
@@ -124,17 +193,7 @@ run_workload_sequential(const std::shared_ptr<couchbase::transactions::transacti
   for (std::size_t i = 0; i < arguments.number_of_operations; ++i) {
     document_ids.emplace_back(fmt::format("{}_{:06d}", document_id_prefix, i));
   }
-  fmt::print("Using {} IDs in interval [\"{}\"...\"{}\"]\n",
-             document_ids.size(),
-             document_ids[0],
-             document_ids[document_ids.size() - 1]);
 
-  // Transactions do not have upsert operation, so we need to ensure that the documents do not exist
-  // in the collection.
-  fmt::print("Removing {} IDs in collection \"{}.{}\"\n",
-             document_ids.size(),
-             arguments.scope_name,
-             arguments.collection_name);
   {
     using remove_result = std::future<std::pair<couchbase::error, couchbase::mutation_result>>;
 
@@ -154,16 +213,7 @@ run_workload_sequential(const std::shared_ptr<couchbase::transactions::transacti
     }
     auto cleanup_end = std::chrono::system_clock::now();
 
-    fmt::print(
-      "Removed {} keys in {}ms ({}us, {}s)\n",
-      arguments.number_of_operations,
-      std::chrono::duration_cast<std::chrono::milliseconds>(cleanup_end - cleanup_start).count(),
-      std::chrono::duration_cast<std::chrono::microseconds>(cleanup_end - cleanup_start).count(),
-      std::chrono::duration_cast<std::chrono::seconds>(cleanup_end - cleanup_start).count());
-
-    if (errors.empty()) {
-      fmt::print("\tAll operations completed successfully\n");
-    } else {
+    if (!errors.empty()) {
       fmt::print("\tSome operations completed with errors:\n");
       for (auto [error, hits] : errors) {
         fmt::print("\t{}: {}\n", error, hits);
@@ -194,15 +244,6 @@ run_workload_sequential(const std::shared_ptr<couchbase::transactions::transacti
       });
     auto exec_end = std::chrono::system_clock::now();
 
-    fmt::print(
-      "\rExecuted transaction with {} INSERT operations in {}ms ({}us, {}s), average latency: "
-      "{}ms\n",
-      arguments.number_of_operations,
-      std::chrono::duration_cast<std::chrono::milliseconds>(exec_end - exec_start).count(),
-      std::chrono::duration_cast<std::chrono::microseconds>(exec_end - exec_start).count(),
-      std::chrono::duration_cast<std::chrono::seconds>(exec_end - exec_start).count(),
-      std::chrono::duration_cast<std::chrono::milliseconds>(exec_end - exec_start).count() /
-        arguments.number_of_operations);
     if (err.ec()) {
       fmt::print("\tTransaction completed with error {}, cause={}\n",
                  err.ec().message(),
@@ -211,12 +252,8 @@ run_workload_sequential(const std::shared_ptr<couchbase::transactions::transacti
         fmt::print("\tINFO: Try to increase CB_TRANSACTION_TIMEOUT, current value is {} seconds\n",
                    arguments.transaction_timeout);
       }
-    } else {
-      fmt::print("\tTransaction completed successfully\n");
     }
-    if (errors.empty()) {
-      fmt::print("\tAll operations completed successfully\n");
-    } else {
+    if (!errors.empty()) {
       fmt::print("\tSome operations completed with errors:\n");
       for (auto [error, hits] : errors) {
         fmt::print("\t{}: {}\n", error, hits);
@@ -243,14 +280,6 @@ run_workload_sequential(const std::shared_ptr<couchbase::transactions::transacti
       });
     auto exec_end = std::chrono::system_clock::now();
 
-    fmt::print(
-      "\rExecuted transaction with {} GET operations in {}ms ({}us, {}s), average latency: {}ms\n",
-      arguments.number_of_operations,
-      std::chrono::duration_cast<std::chrono::milliseconds>(exec_end - exec_start).count(),
-      std::chrono::duration_cast<std::chrono::microseconds>(exec_end - exec_start).count(),
-      std::chrono::duration_cast<std::chrono::seconds>(exec_end - exec_start).count(),
-      std::chrono::duration_cast<std::chrono::milliseconds>(exec_end - exec_start).count() /
-        arguments.number_of_operations);
     if (err.ec()) {
       fmt::print("\tTransaction completed with error {}, cause={}\n",
                  err.ec().message(),
@@ -259,12 +288,9 @@ run_workload_sequential(const std::shared_ptr<couchbase::transactions::transacti
         fmt::print("\tINFO: Try to increase CB_TRANSACTION_TIMEOUT, current value is {} seconds\n",
                    arguments.transaction_timeout);
       }
-    } else {
-      fmt::print("\tTransaction completed successfully\n");
     }
-    if (errors.empty()) {
-      fmt::print("\tAll operations completed successfully\n");
-    } else {
+
+    if (!errors.empty()) {
       fmt::print("\tSome operations completed with errors:\n");
       for (auto [error, hits] : errors) {
         fmt::print("\t{}: {}\n", error, hits);
@@ -273,11 +299,6 @@ run_workload_sequential(const std::shared_ptr<couchbase::transactions::transacti
   }
 
   auto end = std::chrono::system_clock::now();
-
-  fmt::print("Total time for sequential execution {}ms ({}us, {}s)\n",
-             std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count(),
-             std::chrono::duration_cast<std::chrono::microseconds>(end - start).count(),
-             std::chrono::duration_cast<std::chrono::seconds>(end - start).count());
 }
 
 void
@@ -285,11 +306,9 @@ run_workload_bulk(const std::shared_ptr<couchbase::transactions::transactions>& 
                   const couchbase::collection& collection,
                   const program_arguments& arguments)
 {
-  if (arguments.number_of_operations == 0) {
+  if (arguments.number_of_operations <= 0) {
     return;
   }
-
-  fmt::print("\n===== BULK\n");
 
   const std::string document_id_prefix{ "tx_bulk" };
   std::vector<std::string> document_ids;
@@ -297,17 +316,7 @@ run_workload_bulk(const std::shared_ptr<couchbase::transactions::transactions>& 
   for (std::size_t i = 0; i < arguments.number_of_operations; ++i) {
     document_ids.emplace_back(fmt::format("{}_{:06d}", document_id_prefix, i));
   }
-  fmt::print("Using {} IDs in interval [\"{}\"...\"{}\"]\n",
-             document_ids.size(),
-             document_ids[0],
-             document_ids[document_ids.size() - 1]);
 
-  // Transactions do not have upsert operation, so we need to ensure that the documents do not exist
-  // in the collection.
-  fmt::print("Removing {} IDs in collection \"{}.{}\"\n",
-             document_ids.size(),
-             arguments.scope_name,
-             arguments.collection_name);
   {
     using remove_result = std::future<std::pair<couchbase::error, couchbase::mutation_result>>;
 
@@ -327,16 +336,7 @@ run_workload_bulk(const std::shared_ptr<couchbase::transactions::transactions>& 
     }
     auto cleanup_end = std::chrono::system_clock::now();
 
-    fmt::print(
-      "Removed {} keys in {}ms ({}us, {}s)\n",
-      arguments.number_of_operations,
-      std::chrono::duration_cast<std::chrono::milliseconds>(cleanup_end - cleanup_start).count(),
-      std::chrono::duration_cast<std::chrono::microseconds>(cleanup_end - cleanup_start).count(),
-      std::chrono::duration_cast<std::chrono::seconds>(cleanup_end - cleanup_start).count());
-
-    if (errors.empty()) {
-      fmt::print("\tAll operations completed successfully\n");
-    } else {
+    if (!errors.empty()) {
       fmt::print("\tSome operations completed with errors:\n");
       for (auto [error, hits] : errors) {
         fmt::print("\t{}: {}\n", error, hits);
@@ -374,26 +374,11 @@ run_workload_bulk(const std::shared_ptr<couchbase::transactions::transactions>& 
       });
 
     auto schedule_end = std::chrono::system_clock::now();
-    fmt::print(
-      "\rScheduled transaction with {} INSERT operations in {}ms ({}us, {}s)\n",
-      arguments.number_of_operations,
-      std::chrono::duration_cast<std::chrono::milliseconds>(schedule_end - schedule_start).count(),
-      std::chrono::duration_cast<std::chrono::microseconds>(schedule_end - schedule_start).count(),
-      std::chrono::duration_cast<std::chrono::seconds>(schedule_end - schedule_start).count());
 
     auto exec_start = std::chrono::system_clock::now();
     auto [err, result] = tx_future.get();
     auto exec_end = std::chrono::system_clock::now();
 
-    fmt::print(
-      "\rExecuted transaction with {} INSERT operations in {}ms ({}us, {}s), average latency: "
-      "{}ms\n",
-      arguments.number_of_operations,
-      std::chrono::duration_cast<std::chrono::milliseconds>(exec_end - exec_start).count(),
-      std::chrono::duration_cast<std::chrono::microseconds>(exec_end - exec_start).count(),
-      std::chrono::duration_cast<std::chrono::seconds>(exec_end - exec_start).count(),
-      std::chrono::duration_cast<std::chrono::milliseconds>(exec_end - exec_start).count() /
-        arguments.number_of_operations);
     if (err.ec()) {
       fmt::print("\tTransaction completed with error {}, cause={}\n",
                  err.ec().message(),
@@ -402,12 +387,9 @@ run_workload_bulk(const std::shared_ptr<couchbase::transactions::transactions>& 
         fmt::print("\tINFO: Try to increase CB_TRANSACTION_TIMEOUT, current value is {} seconds\n",
                    arguments.transaction_timeout);
       }
-    } else {
-      fmt::print("\tTransaction completed successfully\n");
     }
-    if (errors.empty()) {
-      fmt::print("\tAll operations completed successfully\n");
-    } else {
+
+    if (!errors.empty()) {
       fmt::print("\tSome operations completed with errors:\n");
       for (auto [error, hits] : errors) {
         fmt::print("\t{}: {}\n", error, hits);
@@ -425,7 +407,7 @@ run_workload_bulk(const std::shared_ptr<couchbase::transactions::transactions>& 
     auto schedule_start = std::chrono::system_clock::now();
     transactions->run(
       [&collection, &document_ids, &arguments, &errors](
-        std::shared_ptr<couchbase::transactions::async_attempt_context> attempt)
+        const std::shared_ptr<couchbase::transactions::async_attempt_context>& attempt)
         -> couchbase::error {
         for (std::size_t i = 0; i < arguments.number_of_operations; ++i) {
           attempt->get(collection, document_ids[i], [&errors](auto ctx, auto) {
@@ -441,25 +423,11 @@ run_workload_bulk(const std::shared_ptr<couchbase::transactions::transactions>& 
       });
 
     auto schedule_end = std::chrono::system_clock::now();
-    fmt::print(
-      "\rScheduled transaction with {} GET operations in {}ms ({}us, {}s)\n",
-      arguments.number_of_operations,
-      std::chrono::duration_cast<std::chrono::milliseconds>(schedule_end - schedule_start).count(),
-      std::chrono::duration_cast<std::chrono::microseconds>(schedule_end - schedule_start).count(),
-      std::chrono::duration_cast<std::chrono::seconds>(schedule_end - schedule_start).count());
 
     auto exec_start = std::chrono::system_clock::now();
     auto [err, result] = tx_future.get();
     auto exec_end = std::chrono::system_clock::now();
 
-    fmt::print(
-      "\rExecuted transaction with {} GET operations in {}ms ({}us, {}s), average latency: {}ms\n",
-      arguments.number_of_operations,
-      std::chrono::duration_cast<std::chrono::milliseconds>(exec_end - exec_start).count(),
-      std::chrono::duration_cast<std::chrono::microseconds>(exec_end - exec_start).count(),
-      std::chrono::duration_cast<std::chrono::seconds>(exec_end - exec_start).count(),
-      std::chrono::duration_cast<std::chrono::milliseconds>(exec_end - exec_start).count() /
-        arguments.number_of_operations);
     if (err.ec()) {
       fmt::print("\tTransaction completed with error {}, cause={}\n",
                  err.ec().message(),
@@ -468,16 +436,13 @@ run_workload_bulk(const std::shared_ptr<couchbase::transactions::transactions>& 
         fmt::print("\tINFO: Try to increase CB_TRANSACTION_TIMEOUT, current value is {} seconds\n",
                    arguments.transaction_timeout);
       }
-    } else {
-      fmt::print("\tTransaction completed successfully\n");
     }
+
     if (err.ec() == couchbase::errc::transaction::expired) {
       fmt::print("\tINFO: Try to increase CB_TRANSACTION_TIMEOUT, current value is {} seconds\n",
                  arguments.transaction_timeout);
     }
-    if (errors.empty()) {
-      fmt::print("\tAll operations completed successfully\n");
-    } else {
+    if (!errors.empty()) {
       fmt::print("\tSome operations completed with errors:\n");
       for (auto [error, hits] : errors) {
         fmt::print("\t{}: {}\n", error, hits);
@@ -485,27 +450,15 @@ run_workload_bulk(const std::shared_ptr<couchbase::transactions::transactions>& 
     }
   }
   auto end = std::chrono::system_clock::now();
-
-  fmt::print("Total time for bulk execution {}ms ({}us, {}s)\n",
-             std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count(),
-             std::chrono::duration_cast<std::chrono::microseconds>(end - start).count(),
-             std::chrono::duration_cast<std::chrono::seconds>(end - start).count());
 }
 
-int
-main()
+void
+bulk_transactional_api_example()
 {
-  auto arguments = program_arguments::load_from_environment();
+  couchbase::logger::initialize_console_logger();
+  couchbase::logger::set_level(couchbase::logger::log_level::error);
 
-  fmt::print("CB_CONNECTION_STRING={}\n", arguments.connection_string);
-  fmt::print("CB_USERNAME={}\n", arguments.username);
-  fmt::print("CB_PASSWORD={}\n", arguments.password);
-  fmt::print("CB_BUCKET_NAME={}\n", arguments.bucket_name);
-  fmt::print("CB_SCOPE_NAME={}\n", arguments.scope_name);
-  fmt::print("CB_COLLECTION_NAME={}\n", arguments.collection_name);
-  fmt::print("CB_NUMBER_OF_OPERATIONS={}\n", arguments.number_of_operations);
-  fmt::print("CB_DOCUMENT_BODY_SIZE={}\n", arguments.document_body_size);
-  fmt::print("CB_TRANSACTION_TIMEOUT={}\n", arguments.transaction_timeout.count());
+  auto arguments = program_arguments::load_from_environment();
 
   auto options = couchbase::cluster_options(arguments.username, arguments.password);
   options.apply_profile("wan_development");
@@ -522,11 +475,24 @@ main()
                         .scope(arguments.scope_name)
                         .collection(arguments.collection_name);
 
-    run_workload_sequential(transactions, collection, arguments);
+    // run_workload_sequential(transactions, collection, arguments);
+    /* for (int i = 1; i < 10; ++i) { */
     run_workload_bulk(transactions, collection, arguments);
+    /* if (i % 10 == 0) { */
+    double vm{};
+    double rss{};
+    mem_usage(vm, rss);
+    cout << "bulk_transactional_api_example iter: "
+         /* << i  */
+         << " Virtual Memory: " << vm << " Resident set size: " << rss << endl;
+    /* } */
+    /* } */
   }
-
   cluster.close().get();
+}
 
-  return 0;
+auto
+main() -> int
+{
+  bulk_transactional_api_example();
 }

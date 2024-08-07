@@ -71,6 +71,13 @@ transaction_context::transaction_context(transactions& txns,
   }
 }
 
+transaction_context::~transaction_context()
+{
+  fmt::println(stderr,
+               "destroying transaction_context with {} as attempt context",
+               static_cast<const void*>(current_attempt_context_.get()));
+}
+
 void
 transaction_context::add_attempt()
 {
@@ -136,6 +143,9 @@ transaction_context::new_attempt_context(async_attempt_context::VoidCallback&& c
                try {
                  (*self->delay_)();
                  self->current_attempt_context_ = attempt_context_impl::create(self);
+                 fmt::println(stderr,
+                              "assigned {} to current attempt context",
+                              static_cast<const void*>(self->current_attempt_context_.get()));
                  CB_ATTEMPT_CTX_LOG_INFO(self->current_attempt_context_,
                                          "starting attempt {}/{}/{}/",
                                          self->num_attempts(),

@@ -75,7 +75,7 @@ class attempt_context_impl
   , public std::enable_shared_from_this<attempt_context_impl>
 {
 private:
-  std::shared_ptr<transaction_context> overall_;
+  std::weak_ptr<transaction_context> overall_;
   std::optional<core::document_id> atr_id_;
   bool is_done_{ false };
   std::unique_ptr<staged_mutation_queue> staged_mutations_;
@@ -364,13 +364,13 @@ public:
 
   [[nodiscard]] auto is_done() const -> bool;
 
-  [[nodiscard]] auto overall() -> std::shared_ptr<transaction_context>;
+  [[nodiscard]] auto overall() const -> std::shared_ptr<transaction_context>;
 
   [[nodiscard]] auto transaction_id() const -> const std::string&;
 
   [[nodiscard]] auto id() const -> const std::string&;
 
-  [[nodiscard]] auto state() -> attempt_state;
+  [[nodiscard]] auto state() const -> attempt_state;
 
   void state(attempt_state s);
 
