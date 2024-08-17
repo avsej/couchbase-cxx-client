@@ -34,7 +34,7 @@
 #include "core/operations/document_upsert.hxx"
 #include "core/utils/connection_string.hxx"
 
-TEST_CASE("integration: connecting with empty bootstrap nodes list", "[integration]")
+TEST_CASE("integration: connecting with empty bootstrap nodes list", "[test1]")
 {
   asio::io_context io{};
   auto connstr = couchbase::core::utils::parse_connection_string("couchbase://");
@@ -55,8 +55,7 @@ TEST_CASE("integration: connecting with empty bootstrap nodes list", "[integrati
   io_thread.join();
 }
 
-TEST_CASE("integration: connecting with unresponsive first node in bootstrap nodes list",
-          "[integration]")
+TEST_CASE("integration: connecting with unresponsive first node in bootstrap nodes list", "[test2]")
 {
   test::utils::init_logger();
   asio::io_context io{};
@@ -92,7 +91,7 @@ TEST_CASE("integration: connecting with unresponsive first node in bootstrap nod
   io_thread.join();
 }
 
-TEST_CASE("integration: can connect with handler capturing non-copyable object", "[integration]")
+TEST_CASE("integration: can connect with handler capturing non-copyable object", "[test3]")
 {
   test::utils::integration_test_guard integration;
 
@@ -146,7 +145,7 @@ TEST_CASE("integration: can connect with handler capturing non-copyable object",
   }
 }
 
-TEST_CASE("integration: destroy cluster without waiting for close completion", "[integration]")
+TEST_CASE("integration: destroy cluster without waiting for close completion", "[test4]")
 {
   test::utils::init_logger();
   auto ctx = test::utils::test_context::load_from_environment();
@@ -197,7 +196,7 @@ TEST_CASE("integration: destroy cluster without waiting for close completion", "
 
 TEST_CASE("integration: connecting with a custom transactions metadata collection that is in a "
           "bucket that does not exist - Public API",
-          "[integration]")
+          "[test5]")
 {
   test::utils::init_logger();
   auto ctx = test::utils::test_context::load_from_environment();

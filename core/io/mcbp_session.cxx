@@ -26,6 +26,7 @@
 #include "core/diagnostics.hxx"
 #include "core/impl/bootstrap_error.hxx"
 #include "core/impl/bootstrap_state_listener.hxx"
+#include "core/io/ip_protocol_fmt.hxx"
 #include "core/logger/logger.hxx"
 #include "core/mcbp/codec.hxx"
 #include "core/mcbp/queue_request.hxx"
@@ -868,6 +869,7 @@ public:
     , resolver_(ctx_)
     , stream_(std::make_unique<plain_stream_impl>(ctx_))
     , bootstrap_deadline_(ctx_)
+    , resolve_deadline_(ctx_)
     , connection_deadline_(ctx_)
     , retry_backoff_(ctx_)
     , ping_deadline_(ctx_)
@@ -894,6 +896,7 @@ public:
     , resolver_(ctx_)
     , stream_(std::make_unique<tls_stream_impl>(ctx_, tls))
     , bootstrap_deadline_(ctx_)
+    , resolve_deadline_(ctx_)
     , connection_deadline_(ctx_)
     , retry_backoff_(ctx_)
     , ping_deadline_(ctx_)
@@ -1083,6 +1086,8 @@ public:
     if (stopped_) {
       return;
     }
+    CB_LOG_CRITICAL(
+      R"(initiate_bootstrap host="{}", port={})", bootstrap_hostname_, bootstrap_port_);
     bootstrapped_ = false;
     if (bootstrap_handler_) {
       last_bootstrap_error_ = std::move(bootstrap_handler_)->last_bootstrap_error();
@@ -1137,15 +1142,29 @@ public:
                               stream_->log_prefix(),
                               bucket_name_.value_or("-"),
                               bootstrap_address_);
-    CB_LOG_DEBUG("{} attempt to establish MCBP connection", log_prefix_);
+    CB_LOG_DEBUG("{} attempt to establish MCBP connection, resolver will use {} protocol",
+                 log_prefix_,
+                 origin_.options().use_ip_protocol);
+
+    resolve_deadline_.expires_after(origin_.options().resolve_timeout);
+    CB_LOG_CRITICAL("set resolve_deadline to wait for resolve timeout={}ms",
+                    origin_.options().resolve_timeout.count());
+    resolve_deadline_.async_wait([self = shared_from_this()](const auto ec) {
+      CB_LOG_CRITICAL("resolver timeout, ec={}", ec.message());
+      if (ec == asio::error::operation_aborted || self->stopped_) {
+        return;
+      }
+      self->resolver_.cancel();
+      self->initiate_bootstrap();
+    });
 
     async_resolve(origin_.options().use_ip_protocol,
                   resolver_,
                   bootstrap_hostname_,
                   bootstrap_port_,
-                  [capture0 = shared_from_this()](auto&& PH1, auto&& PH2) {
-                    capture0->on_resolve(std::forward<decltype(PH1)>(PH1),
-                                         std::forward<decltype(PH2)>(PH2));
+                  [self = shared_from_this()](auto ec, const auto &endpoints) {
+                    self->on_resolve(ec, endpoints);
+      CB_LOG_CRITICAL("exit on_resolve callback, ec={}", ec.message());
                   });
   }
 
@@ -1178,6 +1197,8 @@ public:
     CB_LOG_DEBUG("{} stop MCBP connection, reason={}", log_prefix_, reason);
     stopped_ = true;
     bootstrap_deadline_.cancel();
+    CB_LOG_CRITICAL("cancel connection_deadline");
+    resolve_deadline_.cancel();
     connection_deadline_.cancel();
     retry_backoff_.cancel();
     ping_deadline_.cancel();
@@ -1711,36 +1732,34 @@ private:
     }
   }
 
-  void on_resolve(std::error_code ec, const asio::ip::tcp::resolver::results_type& endpoints)
+  void on_resolve(std::error_code ec, const asio::ip::tcp::resolver::results_type &endpoints)
   {
+    CB_LOG_CRITICAL("on_resolve ec={}", ec.message());
     if (ec == asio::error::operation_aborted || stopped_) {
       return;
     }
+    resolve_deadline_.cancel();
     last_active_ = std::chrono::steady_clock::now();
     if (ec) {
       CB_LOG_ERROR("{} error on resolve: {} ({})", log_prefix_, ec.value(), ec.message());
       last_bootstrap_error_ = { ec, ec.message(), bootstrap_hostname_, bootstrap_port_ };
-      return initiate_bootstrap();
+      return asio::post(asio::bind_executor(ctx_, [self = shared_from_this()]() {
+        self->initiate_bootstrap();
+      }));
     }
     endpoints_ = endpoints;
+
     CB_LOG_TRACE("{} resolved \"{}:{}\" to {} endpoint(s)",
                  log_prefix_,
                  bootstrap_hostname_,
                  bootstrap_port_,
                  endpoints_.size());
-    do_connect(endpoints_.begin());
-    connection_deadline_.expires_after(origin_.options().resolve_timeout);
-    connection_deadline_.async_wait([self = shared_from_this()](const auto timer_ec) {
-      if (timer_ec == asio::error::operation_aborted || self->stopped_) {
-        return;
-      }
-      return self->stream_->close([self](std::error_code) {
-        self->initiate_bootstrap();
-      });
-    });
+    asio::post(asio::bind_executor(ctx_, [self = shared_from_this()]() {
+      self->do_connect(self->endpoints_.begin());
+    }));
   }
 
-  void do_connect(const asio::ip::tcp::resolver::results_type::iterator& it)
+  void do_connect(asio::ip::tcp::resolver::results_type::iterator it)
   {
     if (stopped_) {
       return;
@@ -1756,28 +1775,32 @@ private:
                    bootstrap_hostname_,
                    bootstrap_port_,
                    origin_.options().connect_timeout.count());
+      stream_->async_connect(it->endpoint(), [self = shared_from_this(), it](auto ec) {
+        self->on_connect(ec, it);
+      });
       connection_deadline_.expires_after(origin_.options().connect_timeout);
       connection_deadline_.async_wait(
-        [self = shared_from_this(), hostname, port](const auto timer_ec) {
+        [self = shared_from_this(), hostname, port, next_address = ++it](const auto timer_ec) {
+          CB_LOG_CRITICAL("connection_deadline {}: ec={}", hostname, timer_ec.message());
           if (timer_ec == asio::error::operation_aborted || self->stopped_) {
             return;
           }
-          CB_LOG_DEBUG("{} unable to connect to {}:{} (\"{}:{}\") in time, reconnecting",
+          CB_LOG_DEBUG("{} unable to connect to {}:{} (\"{}:{}\") in time, trying next {} address",
                        self->log_prefix_,
                        hostname,
                        port,
                        self->bootstrap_hostname_,
-                       self->bootstrap_port_);
-          return self->stream_->close([self](std::error_code ec) {
-            self->last_bootstrap_error_ = {
-              ec, ec.message(), self->bootstrap_hostname_, self->bootstrap_port_
-            };
-            self->initiate_bootstrap();
+                       self->bootstrap_port_,
+                       (next_address == self->endpoints_.end()) ? "bootstrap" : "IP");
+          self->stream_->close([self, next_address](auto ec) {
+            if (ec) {
+              CB_LOG_WARNING("{} unable to close socket, but continue connecting attempt: {}",
+                             self->log_prefix_,
+                             ec.message());
+            }
+            self->do_connect(next_address);
           });
         });
-      stream_->async_connect(it->endpoint(), [capture0 = shared_from_this(), it](auto&& PH1) {
-        capture0->on_connect(std::forward<decltype(PH1)>(PH1), it);
-      });
     } else {
       auto error_msg =
         fmt::format("no more endpoints left to connect to \"{}:{}\", will try another address",
@@ -1792,12 +1815,15 @@ private:
           fmt::format("{}:{}", bootstrap_hostname_, bootstrap_port_),
           errc::network::no_endpoints_left);
       }
-      return initiate_bootstrap();
+      return asio::post(asio::bind_executor(ctx_, [self = shared_from_this()]() {
+        self->initiate_bootstrap();
+      }));
     }
   }
 
   void on_connect(const std::error_code& ec, asio::ip::tcp::resolver::results_type::iterator it)
   {
+    CB_LOG_CRITICAL("on_connect {}: ec={}", it->endpoint().address().to_string(), ec.message());
     if (ec == asio::error::operation_aborted || stopped_) {
       return;
     }
@@ -1838,6 +1864,8 @@ private:
         do_connect(++it);
       }
     } else {
+      CB_LOG_CRITICAL("cancel connection_deadline in on_connect");
+      connection_deadline_.cancel();
       stream_->set_options();
       connection_endpoints_ = { it->endpoint(), stream_->local_endpoint() };
       CB_LOG_DEBUG("{} connected to {}:{}",
@@ -1854,21 +1882,23 @@ private:
                                 connection_endpoints_.remote.port());
       parser_.reset();
       bootstrap_handler_ = std::make_shared<bootstrap_handler>(shared_from_this());
-      connection_deadline_.cancel();
     }
   }
 
   void check_deadline(std::error_code ec)
   {
+    CB_LOG_CRITICAL("check_deadline: ec={}", ec.message());
     if (ec == asio::error::operation_aborted || stopped_) {
       return;
     }
     if (connection_deadline_.expiry() <= asio::steady_timer::clock_type::now()) {
+      CB_LOG_CRITICAL("stream close: ec={}", ec.message());
       stream_->close([](std::error_code) {
       });
     }
-    connection_deadline_.async_wait([capture0 = shared_from_this()](auto&& PH1) {
-      capture0->check_deadline(std::forward<decltype(PH1)>(PH1));
+    CB_LOG_CRITICAL("reset deadline?");
+    connection_deadline_.async_wait([self = shared_from_this()](auto ec) {
+      self->check_deadline(ec);
     });
   }
 
@@ -2010,6 +2040,7 @@ private:
   asio::ip::tcp::resolver resolver_;
   std::unique_ptr<stream_impl> stream_;
   asio::steady_timer bootstrap_deadline_;
+  asio::steady_timer resolve_deadline_;
   asio::steady_timer connection_deadline_;
   asio::steady_timer retry_backoff_;
   asio::steady_timer ping_deadline_;
