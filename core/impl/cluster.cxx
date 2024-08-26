@@ -64,6 +64,7 @@
 #include <functional>
 #include <future>
 #include <memory>
+#include <openssl/ec.h>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -226,29 +227,91 @@ public:
     std::promise<void> barrier;
     auto future = barrier.get_future();
 
+          fmt::println(stderr,
+                       "ZZZZ {}:{} initiate destruction sequence",
+                       __FILE__,
+                       __LINE__);
     // Spawn new thread to avoid joining IO thread from the same thread
     // We cannot use close() method here, as it is capturing self as a shared
     // pointer to extend lifetime for the user's callback. Here the reference
     // counter has reached zero already, so we can only capture `*this`.
     std::thread([this, &barrier]() mutable {
+          fmt::println(stderr,
+                       "ZZZZ {}:{} started destruction thread",
+                       __FILE__,
+                       __LINE__);
       if (auto txns = std::move(transactions_); txns != nullptr) {
+          fmt::println(stderr,
+                       "ZZZZ {}:{} transactions have been initialized, closing them",
+                       __FILE__,
+                       __LINE__);
         // blocks until cleanup is finished
         txns->close();
+          fmt::println(stderr,
+                       "ZZZZ {}:{} transactions have been closed",
+                       __FILE__,
+                       __LINE__);
+      } else {
+          fmt::println(stderr,
+                       "ZZZZ {}:{} transactions have not been initialized, ignoring",
+                       __FILE__,
+                       __LINE__);
       }
       std::promise<void> core_stopped;
       auto f = core_stopped.get_future();
+          fmt::println(stderr,
+                       "ZZZZ {}:{} trying to stop the core",
+                       __FILE__,
+                       __LINE__);
       core_.close([&core_stopped]() {
+          fmt::println(stderr,
+                       "ZZZZ {}:{} the core has been stopped",
+                       __FILE__,
+                       __LINE__);
         core_stopped.set_value();
       });
+          fmt::println(stderr,
+                       "ZZZZ {}:{} awaiting core stopper",
+                       __FILE__,
+                       __LINE__);
       f.get();
+          fmt::println(stderr,
+                       "ZZZZ {}:{} stopping the IO",
+                       __FILE__,
+                       __LINE__);
       io_.stop();
+          fmt::println(stderr,
+                       "ZZZZ {}:{} IO has been just stopped",
+                       __FILE__,
+                       __LINE__);
       if (io_thread_.joinable()) {
+          fmt::println(stderr,
+                       "ZZZZ {}:{} IO thread is joinable, joining",
+                       __FILE__,
+                       __LINE__);
         io_thread_.join();
+      } else {
+          fmt::println(stderr,
+                       "ZZZZ {}:{} IO thread is not joinable, ignoring",
+                       __FILE__,
+                       __LINE__);
       }
+          fmt::println(stderr,
+                       "ZZZZ {}:{} unblock C++ destructor",
+                       __FILE__,
+                       __LINE__);
       barrier.set_value();
     }).detach();
 
+          fmt::println(stderr,
+                       "ZZZZ {}:{} awaiting destruction",
+                       __FILE__,
+                       __LINE__);
     future.get();
+          fmt::println(stderr,
+                       "ZZZZ {}:{} destruction sequence has been completed",
+                       __FILE__,
+                       __LINE__);
   }
 
   void open(const std::string& connection_string,
@@ -259,6 +322,12 @@ public:
       options_to_origin(connection_string, options),
       [impl = shared_from_this(), handler = std::move(handler)](std::error_code ec) mutable {
         if (ec) {
+          fmt::println(stderr,
+                       "XXXX {}:{} use_count: {}, {}",
+                       __FILE__,
+                       __LINE__,
+                       impl.use_count(),
+                       ec.message());
           return handler(ec, {});
         }
         return core::transactions::transactions::create(
@@ -400,11 +469,19 @@ public:
   }
 
 private:
-  asio::io_context io_{ ASIO_CONCURRENCY_HINT_1 };
+  asio::io_context io_{ ASIO_CONCURRENCY_HINT_SAFE };
   core::cluster core_{ io_ };
   std::shared_ptr<core::transactions::transactions> transactions_{ nullptr };
   std::thread io_thread_{ [&io = io_] {
+          fmt::println(stderr,
+                       "ZZZZ {}:{} starting IO thread",
+                       __FILE__,
+                       __LINE__);
     io.run();
+          fmt::println(stderr,
+                       "ZZZZ {}:{} completed IO thread",
+                       __FILE__,
+                       __LINE__);
   } };
 };
 
@@ -532,10 +609,15 @@ cluster::connect(const std::string& connection_string,
 }
 
 void
-cluster::connect(const std::string& connection_string,
-                 const cluster_options& options,
+cluster::connect(const std::string& /*connection_string*/,
+                 const cluster_options& /*options*/,
                  cluster_connect_handler&& handler)
 {
+#ifndef HELLO
+  auto impl = std::make_shared<cluster_impl>();
+  fmt::println(stderr, "YYYY XXXX {}:{} use_count: {}", __FILE__, __LINE__, impl.use_count());
+  handler({ couchbase::errc::common::bucket_not_found, {}, {} }, {});
+#else
   // Spawn new thread for connection to ensure that cluster_impl pointer will
   // not be deallocated in IO thread in case of error.
   std::thread([connection_string, options, handler = std::move(handler)]() {
@@ -543,14 +625,18 @@ cluster::connect(const std::string& connection_string,
     auto future = barrier->get_future();
     {
       auto impl = std::make_shared<cluster_impl>();
+      fmt::println(stderr, "XXXX {}:{} use_count: {}", __FILE__, __LINE__, impl.use_count());
       impl->open(connection_string, options, [barrier](auto err, auto c) {
         barrier->set_value({ std::move(err), std::move(c) });
       });
+      fmt::println(stderr, "XXXX {}:{} use_count: {}", __FILE__, __LINE__, impl.use_count());
     }
 
     auto [err, c] = future.get();
+    fmt::println(stderr, "XXXX {}:{} err: {}", __FILE__, __LINE__, err.ec().message());
     handler(std::move(err), std::move(c));
   }).detach();
+#endif
 }
 
 auto
