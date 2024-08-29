@@ -36,6 +36,8 @@ target_include_directories(cbc PRIVATE ${PROJECT_SOURCE_DIR} ${PROJECT_SOURCE_DI
 
 set_project_warnings(cbc)
 set_project_options(cbc)
+enable_profiler(cbc)
+enable_tracy(cbc)
 
 target_link_libraries(
   cbc

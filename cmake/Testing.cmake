@@ -50,6 +50,8 @@ macro(integration_test name)
   propagate_public_compile_definitions(test_integration_${name} spdlog::spdlog asio)
   set_project_warnings(test_integration_${name})
   set_project_options(test_integration_${name})
+  enable_profiler(test_integration_${name})
+  enable_tracy(test_integration_${name})
   target_link_libraries(
     test_integration_${name}
     PRIVATE ${couchbase_cxx_client_DEFAULT_LIBRARY}
@@ -93,6 +95,8 @@ macro(transaction_test name)
   propagate_public_compile_definitions(test_transaction_${name} spdlog::spdlog asio)
   set_project_warnings(test_transaction_${name})
   set_project_options(test_transaction_${name})
+  enable_profiler(test_transaction_${name})
+  enable_tracy(test_transaction_${name})
   target_link_libraries(
     test_transaction_${name}
     PRIVATE test_main
@@ -135,6 +139,8 @@ macro(unit_test name)
   propagate_public_compile_definitions(test_unit_${name} spdlog::spdlog asio)
   set_project_warnings(test_unit_${name})
   set_project_options(test_unit_${name})
+  enable_profiler(test_unit_${name})
+  enable_tracy(test_unit_${name})
   target_link_libraries(
     test_unit_${name}
     PRIVATE test_main
@@ -178,6 +184,8 @@ macro(integration_benchmark name)
   propagate_public_compile_definitions(benchmark_integration_${name} spdlog::spdlog asio)
   set_project_warnings(benchmark_integration_${name})
   set_project_options(benchmark_integration_${name})
+  enable_profiler(benchmark_integration_${name})
+  enable_tracy(benchmark_integration_${name})
   target_link_libraries(
     benchmark_integration_${name}
     PRIVATE test_main
@@ -205,6 +213,8 @@ add_library(test_main OBJECT ${PROJECT_SOURCE_DIR}/test/main.cxx)
 target_link_libraries(test_main PUBLIC Catch2::Catch2 OpenSSL::SSL)
 target_include_directories(test_main PRIVATE ${PROJECT_SOURCE_DIR} ${PROJECT_BINARY_DIR}/generated
                                              ${PROJECT_BINARY_DIR}/generated_$<CONFIG>)
+enable_profiler(test_main)
+enable_tracy(test_main)
 
 if(COUCHBASE_CXX_CLIENT_STATIC_BORINGSSL AND WIN32)
   set_target_properties(test_main PROPERTIES LINK_FLAGS "/ignore:4099")

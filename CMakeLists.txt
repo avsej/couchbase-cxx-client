@@ -509,6 +509,7 @@ foreach(TARGET ${couchbase_cxx_client_LIBRARIES})
 
   enable_sanitizers(${TARGET})
   enable_profiler(${TARGET})
+  enable_tracy(${TARGET})
   set_project_warnings(${TARGET})
   set_project_options(${TARGET})
   target_link_libraries(${TARGET} PUBLIC $<BUILD_INTERFACE:spdlog::spdlog>)
