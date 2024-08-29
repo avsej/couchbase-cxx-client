@@ -36,6 +36,8 @@
 #include <hdr/hdr_histogram.h>
 #include <tao/json.hpp>
 
+#include <tracy/Tracy.hpp>
+
 #include <csignal>
 #include <deque>
 #include <numeric>
@@ -508,6 +510,7 @@ private:
     auto operation_generator{ operation_generator::parse(operation_ratio_string_) };
 
     while (running.test_and_set() && !stopping) {
+      ZoneScoped;
       std::list<
         std::pair<std::chrono::system_clock::time_point,
                   std::variant<std::future<std::pair<couchbase::error, couchbase::mutation_result>>,

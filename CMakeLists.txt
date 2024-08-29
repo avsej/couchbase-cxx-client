@@ -56,6 +56,8 @@ include(cmake/Sanitizers.cmake)
 # allow for static analysis options
 include(cmake/StaticAnalyzers.cmake)
 
+include(cmake/Profilers.cmake)
+
 include(cmake/Backtrace.cmake)
 enable_sanitizers(project_options)
 
@@ -447,6 +449,8 @@ if (COUCHBASE_CXX_CLIENT_CLANG_TIDY)
   set_target_properties(couchbase_cxx_client PROPERTIES CXX_CLANG_TIDY "${COUCHBASE_CXX_CLIENT_CLANG_TIDY}")
   message(STATUS "clang-tidy: ${COUCHBASE_CXX_CLIENT_CLANG_TIDY}")
 endif()
+
+target_link_libraries(couchbase_cxx_client PUBLIC Tracy::TracyClient)
 
 include(cmake/DetectStandardFilesystem.cmake)
 couchbase_cxx_check_filesystem(
