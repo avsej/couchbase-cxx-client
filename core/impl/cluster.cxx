@@ -263,7 +263,7 @@ public:
                        "ZZZZ {}:{} trying to stop the core",
                        __FILE__,
                        __LINE__);
-      core_.close([&core_stopped]() {
+      core_.close([core_stopped = std::move(core_stopped)]() mutable {
           fmt::println(stderr,
                        "ZZZZ {}:{} the core has been stopped",
                        __FILE__,

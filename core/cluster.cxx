@@ -1130,35 +1130,34 @@ public:
       return handler();
     }
     stopped_ = true;
-    asio::post(asio::bind_executor(
-      ctx_, [self = shared_from_this(), handler = std::move(handler)]() mutable {
-        if (self->session_) {
-          self->session_->stop(retry_reason::do_not_retry);
-          self->session_.reset();
-        }
+    auto closer = [self = shared_from_this(), handler = std::move(handler)]() mutable {
+      if (self->session_) {
+        self->session_->stop(retry_reason::do_not_retry);
+        self->session_.reset();
+      }
 #ifdef COUCHBASE_CXX_CLIENT_COLUMNAR
-        if (self->config_tracker_) {
-          self->config_tracker_->close();
-          self->config_tracker_->unregister_bootstrap_notification_subscriber(
-            self->session_manager_);
-        }
-        self->retry_backoff_.cancel();
+      if (self->config_tracker_) {
+        self->config_tracker_->close();
+        self->config_tracker_->unregister_bootstrap_notification_subscriber(self->session_manager_);
+      }
+      self->retry_backoff_.cancel();
 #endif
-        self->for_each_bucket([](auto bucket) {
-          bucket->close();
-        });
-        self->session_manager_->close();
-        self->work_.reset();
-        if (self->tracer_) {
-          self->tracer_->stop();
-        }
-        self->tracer_.reset();
-        if (self->meter_) {
-          self->meter_->stop();
-        }
-        self->meter_.reset();
-        handler();
-      }));
+      self->for_each_bucket([](auto bucket) {
+        bucket->close();
+      });
+      self->session_manager_->close();
+      self->work_.reset();
+      if (self->tracer_) {
+        self->tracer_->stop();
+      }
+      self->tracer_.reset();
+      if (self->meter_) {
+        self->meter_->stop();
+      }
+      self->meter_.reset();
+      handler();
+    };
+    asio::post(asio::bind_executor(ctx_, std::move(closer)));
   }
 
   auto direct_dispatch(const std::string& bucket_name,
