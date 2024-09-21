@@ -289,7 +289,7 @@ make_blank_configuration(const std::string& hostname,
 }
 
 auto
-make_blank_configuration(const std::vector<std::pair<std::string, std::string>>& endpoints,
+make_blank_configuration(const std::vector<endpoint>& endpoints,
                          bool use_tls,
                          bool force) -> configuration
 {
@@ -312,8 +312,8 @@ make_blank_configuration(const std::vector<std::pair<std::string, std::string>>&
   return result;
 }
 
-configuration
-parse_configuration(simdjson::padded_string_view input, const endpoint& source)
+auto
+parse_configuration(std::string_view input, const endpoint& source) -> configuration
 {
     couchbase::core::topology::configuration result;
 

@@ -59,7 +59,7 @@ dns_srv_tracker::dns_srv_tracker(asio::io_context& ctx,
 
 void
 dns_srv_tracker::get_srv_nodes(
-  utils::movable_function<void(origin::node_list, std::error_code)> callback)
+  utils::movable_function<void(const std::vector<topology::endpoint>&, std::error_code)> callback)
 {
   CB_LOG_DEBUG("Query DNS-SRV: address=\"{}\", service=\"{}\", nameserver=\"{}:{}\"",
                address_,
@@ -71,7 +71,7 @@ dns_srv_tracker::get_srv_nodes(
                         config_,
                         [self = shared_from_this(), callback = std::move(callback)](
                           couchbase::core::io::dns::dns_srv_response&& resp) mutable {
-                          origin::node_list nodes;
+                          std::vector<topology::endpoint> nodes;
                           if (resp.ec) {
                             CB_LOG_WARNING("failed to fetch DNS SRV records for \"{}\" ({}), "
                                            "assuming that cluster is listening this address",
@@ -84,9 +84,9 @@ dns_srv_tracker::get_srv_nodes(
                           } else {
                             nodes.reserve(resp.targets.size());
                             for (const auto& address : resp.targets) {
-                              origin::node_entry node;
-                              node.first = address.hostname;
-                              node.second = std::to_string(address.port);
+                              topology::endpoint node;
+                              node.address = address.hostname;
+                              node.port = address.port;
                               nodes.emplace_back(node);
                             }
                           }
@@ -97,38 +97,38 @@ dns_srv_tracker::get_srv_nodes(
 void
 dns_srv_tracker::do_dns_refresh()
 {
-  get_srv_nodes(
-    [self = shared_from_this()](const origin::node_list& nodes, std::error_code dns_ec) mutable {
-      bool expected_state{ true };
-      if (dns_ec || nodes.empty()) {
-        if (dns_ec) {
-          CB_LOG_WARNING("unable to perform DNS-SRV refresh: {}", dns_ec.message());
-        }
-        self->refresh_in_progress_.compare_exchange_strong(expected_state, false);
-        return;
-      }
-      std::set<std::shared_ptr<config_listener>> listeners;
-      {
-        const std::scoped_lock lock(self->config_listeners_mutex_);
-        listeners = self->config_listeners_;
-      }
-
-      if (!listeners.empty()) {
-        auto config = topology::make_blank_configuration(nodes, self->use_tls_, true);
-        std::vector<std::string> endpoints;
-        endpoints.reserve(nodes.size());
-        for (const auto& [host, port] : nodes) {
-          endpoints.emplace_back(fmt::format("\"{}:{}\"", host, port));
-        }
-        CB_LOG_DEBUG("generated configuration from DNS-SRV response \"{}\": [{}]",
-                     self->address_,
-                     utils::join_strings(endpoints, ", "));
-        for (const auto& listener : listeners) {
-          listener->update_config(config);
-        }
+  get_srv_nodes([self = shared_from_this()](const std::vector<topology::endpoint>& nodes,
+                                            std::error_code dns_ec) mutable {
+    bool expected_state{ true };
+    if (dns_ec || nodes.empty()) {
+      if (dns_ec) {
+        CB_LOG_WARNING("unable to perform DNS-SRV refresh: {}", dns_ec.message());
       }
       self->refresh_in_progress_.compare_exchange_strong(expected_state, false);
-    });
+      return;
+    }
+    std::set<std::shared_ptr<config_listener>> listeners;
+    {
+      const std::scoped_lock lock(self->config_listeners_mutex_);
+      listeners = self->config_listeners_;
+    }
+
+    if (!listeners.empty()) {
+      auto config = topology::make_blank_configuration(nodes, self->use_tls_, true);
+      std::vector<std::string> endpoints;
+      endpoints.reserve(nodes.size());
+      for (const auto& [host, port] : nodes) {
+        endpoints.emplace_back(fmt::format("\"{}:{}\"", host, port));
+      }
+      CB_LOG_DEBUG("generated configuration from DNS-SRV response \"{}\": [{}]",
+                   self->address_,
+                   utils::join_strings(endpoints, ", "));
+      for (const auto& listener : listeners) {
+        listener->update_config(config);
+      }
+    }
+    self->refresh_in_progress_.compare_exchange_strong(expected_state, false);
+  });
 }
 
 void

@@ -20,14 +20,14 @@
 #include "capabilities.hxx"
 #include "core/platform/uuid.h"
 #include "core/service_type.hxx"
+#include "endpoint.hxx"
 
 #include <fmt/core.h>
-#include <simdjson/padded_string_view.h>
 
 #include <map>
 #include <optional>
-#include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace couchbase::core::topology
@@ -94,7 +94,7 @@ struct configuration {
 
   std::optional<std::int64_t> epoch{};
   std::optional<std::int64_t> rev{};
-  couchbase::core::uuid::uuid_t id{};
+  core::uuid::uuid_t id{};
   std::optional<std::uint32_t> num_replicas{};
   std::vector<node> nodes{};
   std::optional<std::string> uuid{};
@@ -129,22 +129,17 @@ struct configuration {
                               const std::string& hostname,
                               const std::string& port) const -> bool;
 
-  auto map_key(const std::string& key,
-               std::size_t index) const -> std::pair<std::uint16_t, std::optional<std::size_t>>;
-  auto map_key(const std::vector<std::byte>& key,
-               std::size_t index) const -> std::pair<std::uint16_t, std::optional<std::size_t>>;
+  [[nodiscard]] auto map_key(const std::string& key, std::size_t index) const
+    -> std::pair<std::uint16_t, std::optional<std::size_t>>;
+  [[nodiscard]] auto map_key(const std::vector<std::byte>& key, std::size_t index) const
+    -> std::pair<std::uint16_t, std::optional<std::size_t>>;
 
-  auto server_by_vbucket(std::uint16_t vbucket,
-                         std::size_t index) const -> std::optional<std::size_t>;
-};
-
-struct endpoint {
-  std::string_view address;
-  std::uint16_t port;
+  [[nodiscard]] auto server_by_vbucket(std::uint16_t vbucket,
+                                       std::size_t index) const -> std::optional<std::size_t>;
 };
 
 auto
-parse_configuration(simdjson::padded_string_view input, const endpoint& source) -> configuration;
+parse_configuration(std::string_view input, const endpoint& source) -> configuration;
 
 auto
 make_blank_configuration(const std::string& hostname,

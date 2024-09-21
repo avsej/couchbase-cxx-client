@@ -27,7 +27,7 @@ struct profile {
   std::string full_name{};
   std::uint32_t birth_year{};
 
-  bool operator==(const profile& other) const
+  auto operator==(const profile& other) const -> bool
   {
     return username == other.username && full_name == other.full_name &&
            birth_year == other.birth_year;
@@ -47,7 +47,7 @@ struct tao::json::traits<profile> {
   }
 
   template<template<typename...> class Traits>
-  static profile as(const tao::json::basic_value<Traits>& v)
+  static auto as(const tao::json::basic_value<Traits>& v) -> profile
   {
     profile result;
     const auto& object = v.get_object();

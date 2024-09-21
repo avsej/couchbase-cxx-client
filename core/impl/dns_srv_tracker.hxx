@@ -19,7 +19,6 @@
 
 #include "bootstrap_state_listener.hxx"
 #include "core/io/dns_client.hxx"
-#include "core/origin.hxx"
 #include "core/utils/movable_function.hxx"
 
 #include <mutex>
@@ -43,8 +42,8 @@ public:
                   std::string address,
                   io::dns::dns_config config,
                   bool use_tls);
-  void get_srv_nodes(
-    utils::movable_function<void(origin::node_list nodes, std::error_code ec)> callback);
+  void get_srv_nodes(utils::movable_function<void(const std::vector<topology::endpoint>& endpoints,
+                                                  std::error_code ec)> callback);
 
   void report_bootstrap_error(const std::string& endpoint, std::error_code ec) override;
   void report_bootstrap_success(const std::vector<std::string>& endpoints) override;

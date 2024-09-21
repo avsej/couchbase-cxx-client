@@ -389,7 +389,7 @@ public:
          handler = std::move(handler)]() mutable {
           return self->dns_srv_tracker_->get_srv_nodes(
             [self, hostname = std::move(hostname), handler = std::move(handler)](
-              origin::node_list nodes, std::error_code ec) mutable {
+              const std::vector<topology::endpoint> &nodes, std::error_code ec) mutable {
               if (ec) {
                 // TODO(CXXCBC-549): clang-tidy-19 reports potential memory leak here
                 // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
@@ -398,7 +398,7 @@ public:
                 });
               }
               if (!nodes.empty()) {
-                self->origin_.set_nodes(std::move(nodes));
+                self->origin_.set_nodes(nodes);
                 CB_LOG_INFO(
                   "replace list of bootstrap nodes with addresses from DNS SRV of \"{}\": [{}]",
                   hostname,
