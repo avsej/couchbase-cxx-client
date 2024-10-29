@@ -19,19 +19,20 @@
 #include "attempt_context_impl.hxx"
 #include "attempt_context_testing_hooks.hxx"
 #include "core/cluster.hxx"
+#include "core/document_id_fmt.hxx"
 #include "core/impl/subdoc/opcode.hxx"
 #include "core/impl/subdoc/path_flags.hxx"
-#include "core/logger/logger.hxx"
 #include "core/operations.hxx"
-#include "core/transactions/internal/logging.hxx"
 #include "internal/transaction_context.hxx"
 #include "internal/transaction_fields.hxx"
 #include "internal/utils.hxx"
+#include "observability/logger.hxx"
 #include "result.hxx"
 #include "result_fmt.hxx"
 
 #include <asio/bind_executor.hpp>
 #include <asio/post.hpp>
+#include <spdlog/fmt/bundled/chrono.h>
 
 namespace couchbase::core::transactions
 {
@@ -133,7 +134,7 @@ auto
 unstaging_state::wait_until_unstage_possible() -> bool
 {
   std::unique_lock lock(mutex_);
-  auto success = cv_.wait_for(lock, ctx_->overall()->remaining(), [this] {
+  auto success = cv_.wait_for(lock, ctx_->overall()->remaining(), [this]() -> bool {
     return (in_flight_count_ < MAX_PARALLELISM) || abort_;
   });
   if (!abort_) {
@@ -177,7 +178,7 @@ staged_mutation_queue::add(staged_mutation&& mutation)
   // Can only have one staged mutation per document.
   queue_.erase(std::remove_if(queue_.begin(),
                               queue_.end(),
-                              [&mutation](const staged_mutation& item) {
+                              [&mutation](const staged_mutation& item) -> bool {
                                 return document_ids_equal(item.id(), mutation.id());
                               }),
                queue_.end());
@@ -233,9 +234,10 @@ void
 staged_mutation_queue::remove_any(const core::document_id& id)
 {
   const std::lock_guard<std::mutex> lock(mutex_);
-  auto new_end = std::remove_if(queue_.begin(), queue_.end(), [&id](const staged_mutation& item) {
-    return document_ids_equal(item.id(), id);
-  });
+  auto new_end =
+    std::remove_if(queue_.begin(), queue_.end(), [&id](const staged_mutation& item) -> bool {
+      return document_ids_equal(item.id(), id);
+    });
   queue_.erase(new_end, queue_.end());
 }
 
@@ -298,7 +300,11 @@ staged_mutation_queue::iterate(const std::function<void(staged_mutation&)>& op)
 void
 staged_mutation_queue::commit(const std::shared_ptr<attempt_context_impl>& ctx)
 {
-  CB_ATTEMPT_CTX_LOG_TRACE(ctx, "committing staged mutations...");
+  CB_LOG_TRACE("committing staged mutations...",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", ctx->transaction_id() },
+                 { "attempt_id", ctx->id() },
+               }));
   const std::lock_guard<std::mutex> lock(mutex_);
 
   unstaging_state state{ ctx };
@@ -323,7 +329,7 @@ staged_mutation_queue::commit(const std::shared_ptr<attempt_context_impl>& ctx)
 
       switch (item.type()) {
         case staged_mutation_type::REMOVE:
-          remove_doc(ctx, item, delay, [&state, barrier](const std::exception_ptr& exc) {
+          remove_doc(ctx, item, delay, [&state, barrier](const std::exception_ptr& exc) -> void {
             if (exc) {
               state.notify_unstage_error();
               barrier->set_exception(exc);
@@ -335,7 +341,7 @@ staged_mutation_queue::commit(const std::shared_ptr<attempt_context_impl>& ctx)
           break;
         case staged_mutation_type::INSERT:
         case staged_mutation_type::REPLACE:
-          commit_doc(ctx, item, delay, [&state, barrier](const std::exception_ptr& exc) {
+          commit_doc(ctx, item, delay, [&state, barrier](const std::exception_ptr& exc) -> void {
             if (exc) {
               state.notify_unstage_error();
               barrier->set_exception(exc);
@@ -348,11 +354,14 @@ staged_mutation_queue::commit(const std::shared_ptr<attempt_context_impl>& ctx)
       }
     } catch (...) {
       // This should not happen, but catching it to ensure that we wait for in-flight operations
-      CB_ATTEMPT_CTX_LOG_ERROR(ctx,
-                               "caught exception while trying to initiate commit for {}. Aborting "
-                               "rest of commit and waiting for "
-                               "in-flight rollback operations to finish",
-                               item.id());
+      CB_LOG_ERROR(
+        "caught exception while trying to initiate commit for {staged_mutation_id}. Aborting rest "
+        "of commit and waiting for in-flight rollback operations to finish",
+        opentelemetry::common::MakeAttributes({
+          { "transaction_id", ctx->transaction_id() },
+          { "attempt_id", ctx->id() },
+          { "staged_mutation_id", fmt::format("{}", item.id()) },
+        }));
       aborted = true;
       break;
     }
@@ -389,7 +398,11 @@ staged_mutation_queue::commit(const std::shared_ptr<attempt_context_impl>& ctx)
 void
 staged_mutation_queue::rollback(const std::shared_ptr<attempt_context_impl>& ctx)
 {
-  CB_ATTEMPT_CTX_LOG_TRACE(ctx, "rolling back staged mutations...");
+  CB_LOG_TRACE("rolling back staged mutations...",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", ctx->transaction_id() },
+                 { "attempt_id", ctx->id() },
+               }));
   const std::lock_guard<std::mutex> lock(mutex_);
 
   unstaging_state state{ ctx };
@@ -414,20 +427,21 @@ staged_mutation_queue::rollback(const std::shared_ptr<attempt_context_impl>& ctx
 
       switch (item.type()) {
         case staged_mutation_type::INSERT:
-          rollback_insert(ctx, item, delay, [&state, barrier](const std::exception_ptr& exc) {
-            if (exc) {
-              state.notify_unstage_error();
-              barrier->set_exception(exc);
-            } else {
-              state.notify_unstage_complete();
-              barrier->set_value();
-            }
-          });
+          rollback_insert(
+            ctx, item, delay, [&state, barrier](const std::exception_ptr& exc) -> void {
+              if (exc) {
+                state.notify_unstage_error();
+                barrier->set_exception(exc);
+              } else {
+                state.notify_unstage_complete();
+                barrier->set_value();
+              }
+            });
           break;
         case staged_mutation_type::REMOVE:
         case staged_mutation_type::REPLACE:
           rollback_remove_or_replace(
-            ctx, item, delay, [&state, barrier](const std::exception_ptr& exc) {
+            ctx, item, delay, [&state, barrier](const std::exception_ptr& exc) -> void {
               if (exc) {
                 state.notify_unstage_error();
                 barrier->set_exception(exc);
@@ -440,11 +454,13 @@ staged_mutation_queue::rollback(const std::shared_ptr<attempt_context_impl>& ctx
       }
     } catch (...) {
       // This should not happen, but catching it to ensure that we wait for in-flight operations
-      CB_ATTEMPT_CTX_LOG_ERROR(ctx,
-                               "caught exception while trying to initiate rollback for {}. "
-                               "Aborting rollback and waiting for "
-                               "in-flight rollback operations to finish",
-                               item.id());
+      CB_LOG_ERROR("caught exception while trying to initiate rollback for {document_id}. Aborting "
+                   "rollback and waiting for in-flight rollback operations to finish",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", ctx->transaction_id() },
+                     { "attempt_id", ctx->id() },
+                     { "document_id", fmt::format("{}", item.id()) },
+                   }));
       aborted = true;
       break;
     }
@@ -482,14 +498,19 @@ staged_mutation_queue::rollback_insert(const std::shared_ptr<attempt_context_imp
                                        async_exp_delay& delay,
                                        utils::movable_function<void(std::exception_ptr)> callback)
 {
-  CB_ATTEMPT_CTX_LOG_TRACE(
-    ctx, "rolling back staged insert for {} with cas {}", item.id(), item.cas().value());
+  CB_LOG_TRACE("rolling back staged insert for {document_id} with cas {cas}",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", ctx->transaction_id() },
+                 { "attempt_id", ctx->id() },
+                 { "document_id", fmt::format("{}", item.id()) },
+                 { "cas", item.cas().value() },
+               }));
 
   asio::post(asio::bind_executor(
     ctx->cluster_ref().io_context(),
-    [this, callback = std::move(callback), ctx, &item, delay]() mutable {
+    [this, callback = std::move(callback), ctx, &item, delay]() mutable -> void {
       auto handler = [this, callback = std::move(callback), ctx, &item, delay](
-                       const std::optional<client_error>& e) mutable {
+                       const std::optional<client_error>& e) mutable -> void {
         if (e) {
           return handle_rollback_insert_error(e.value(), ctx, item, delay, std::move(callback));
         }
@@ -504,7 +525,8 @@ staged_mutation_queue::rollback_insert(const std::shared_ptr<attempt_context_imp
       return ctx->hooks_.before_rollback_delete_inserted(
         ctx,
         item.id().key(),
-        [handler = std::move(handler), ctx, &item, delay](std::optional<error_class> ec) mutable {
+        [handler = std::move(handler), ctx, &item, delay](
+          std::optional<error_class> ec) mutable -> void {
           if (ec) {
             return handler(client_error(*ec, "before_rollback_delete_insert hook threw error"));
           }
@@ -520,9 +542,14 @@ staged_mutation_queue::rollback_insert(const std::shared_ptr<attempt_context_imp
           return ctx->cluster_ref().execute(
             req,
             [handler = std::move(handler), ctx, &item, delay](
-              const core::operations::mutate_in_response& resp) mutable {
-              CB_ATTEMPT_CTX_LOG_TRACE(
-                ctx, "mutate_in for {} with cas {}", item.id(), item.cas().value());
+              const core::operations::mutate_in_response& resp) mutable -> void {
+              CB_LOG_TRACE("mutate_in for {document_id} with cas {cas}",
+                           opentelemetry::common::MakeAttributes({
+                             { "transaction_id", ctx->transaction_id() },
+                             { "attempt_id", ctx->id() },
+                             { "document_id", fmt::format("{}", item.id()) },
+                             { "cas", item.cas().value() },
+                           }));
 
               auto res = result::create_from_subdoc_response(resp);
               return validate_rollback_insert_result(ctx, res, item, std::move(handler));
@@ -538,14 +565,19 @@ staged_mutation_queue::rollback_remove_or_replace(
   async_exp_delay& delay,
   utils::movable_function<void(std::exception_ptr)> callback)
 {
-  CB_ATTEMPT_CTX_LOG_TRACE(
-    ctx, "rolling back staged remove/replace for {} with cas {}", item.id(), item.cas().value());
+  CB_LOG_TRACE("rolling back staged remove/replace for {document_id} with cas {cas}",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", ctx->transaction_id() },
+                 { "attempt_id", ctx->id() },
+                 { "document_id", fmt::format("{}", item.id()) },
+                 { "cas", item.cas().value() },
+               }));
 
   asio::post(asio::bind_executor(
     ctx->cluster_ref().io_context(),
-    [this, callback = std::move(callback), ctx, &item, delay]() mutable {
+    [this, callback = std::move(callback), ctx, &item, delay]() mutable -> void {
       auto handler = [this, callback = std::move(callback), ctx, &item, delay](
-                       const std::optional<client_error>& e) mutable {
+                       const std::optional<client_error>& e) mutable -> void {
         if (e) {
           return handle_rollback_remove_or_replace_error(
             e.value(), ctx, item, delay, std::move(callback));
@@ -560,7 +592,8 @@ staged_mutation_queue::rollback_remove_or_replace(
       ctx->hooks_.before_doc_rolled_back(
         ctx,
         item.id().key(),
-        [handler = std::move(handler), ctx, &item, delay](std::optional<error_class> ec) mutable {
+        [handler = std::move(handler), ctx, &item, delay](
+          std::optional<error_class> ec) mutable -> void {
           if (ec) {
             return handler(client_error(*ec, "before_doc_rolled_back hook threw error"));
           }
@@ -576,7 +609,7 @@ staged_mutation_queue::rollback_remove_or_replace(
           return ctx->cluster_ref().execute(
             req,
             [handler = std::move(handler), ctx, &item, delay](
-              const core::operations::mutate_in_response& resp) mutable {
+              const core::operations::mutate_in_response& resp) mutable -> void {
               auto res = result::create_from_subdoc_response(resp);
               return validate_rollback_remove_or_replace_result(ctx, res, item, std::move(handler));
             });
@@ -592,11 +625,14 @@ staged_mutation_queue::commit_doc(const std::shared_ptr<attempt_context_impl>& c
                                   bool ambiguity_resolution_mode,
                                   bool cas_zero_mode)
 {
-  CB_ATTEMPT_CTX_LOG_TRACE(ctx,
-                           "commit doc {}, cas_zero_mode {}, ambiguity_resolution_mode {}",
-                           item.id(),
-                           cas_zero_mode,
-                           ambiguity_resolution_mode);
+  CB_LOG_TRACE("commit doc {document_id}",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", ctx->transaction_id() },
+                 { "attempt_id", ctx->id() },
+                 { "document_id", fmt::format("{}", item.id()) },
+                 { "cas_zero_mode", cas_zero_mode },
+                 { "ambiguity_resolution_mode", ambiguity_resolution_mode },
+               }));
 
   asio::post(asio::bind_executor(
     ctx->cluster_ref().io_context(),
@@ -606,14 +642,14 @@ staged_mutation_queue::commit_doc(const std::shared_ptr<attempt_context_impl>& c
      &item,
      delay,
      cas_zero_mode,
-     ambiguity_resolution_mode]() mutable {
+     ambiguity_resolution_mode]() mutable -> void {
       ctx->check_expiry_during_commit_or_rollback(
         STAGE_COMMIT_DOC, std::optional<const std::string>(item.id().key()));
 
       auto handler = [this, callback = std::move(callback), ctx, &item, delay](
                        const std::optional<client_error>& e,
                        bool ambiguity_resolution_mode,
-                       bool cas_zero_mode) mutable {
+                       bool cas_zero_mode) mutable -> void {
         if (e) {
           return handle_commit_doc_error(e.value(),
                                          ctx,
@@ -630,14 +666,20 @@ staged_mutation_queue::commit_doc(const std::shared_ptr<attempt_context_impl>& c
         ctx,
         item.id().key(),
         [handler = std::move(handler), ctx, &item, delay, ambiguity_resolution_mode, cas_zero_mode](
-          const std::optional<error_class> ec) mutable {
+          const std::optional<error_class> ec) mutable -> void {
           if (ec) {
             return handler(client_error(*ec, "before_doc_committed hook threw error"),
                            ambiguity_resolution_mode,
                            cas_zero_mode);
           }
           // move staged content into doc
-          CB_ATTEMPT_CTX_LOG_TRACE(ctx, "commit doc id {}, cas {}", item.id(), item.cas().value());
+          CB_LOG_TRACE("commit doc {document_id}",
+                       opentelemetry::common::MakeAttributes({
+                         { "transaction_id", ctx->transaction_id() },
+                         { "attempt_id", ctx->id() },
+                         { "document_id", fmt::format("{}", item.id()) },
+                         { "cas", item.cas().value() },
+                       }));
 
           if (item.type() == staged_mutation_type::INSERT && !cas_zero_mode) {
             if (item.staged_content().has_value()) {
@@ -653,14 +695,14 @@ staged_mutation_queue::commit_doc(const std::shared_ptr<attempt_context_impl>& c
                  &item,
                  delay,
                  ambiguity_resolution_mode,
-                 cas_zero_mode](const core::operations::insert_response& resp) mutable {
+                 cas_zero_mode](const core::operations::insert_response& resp) mutable -> void {
                   auto res = result::create_from_mutation_response(resp);
                   return validate_commit_doc_result(
                     ctx,
                     res,
                     item,
                     [ambiguity_resolution_mode, cas_zero_mode, handler = std::move(handler)](
-                      const auto& e) mutable {
+                      const auto& e) mutable -> auto {
                       if (e) {
                         return handler(e, ambiguity_resolution_mode, cas_zero_mode);
                       }
@@ -701,14 +743,14 @@ staged_mutation_queue::commit_doc(const std::shared_ptr<attempt_context_impl>& c
                &item,
                delay,
                ambiguity_resolution_mode,
-               cas_zero_mode](const operations::mutate_in_response& resp) mutable {
+               cas_zero_mode](const operations::mutate_in_response& resp) mutable -> void {
                 auto res = result::create_from_mutation_response(resp);
                 return validate_commit_doc_result(
                   ctx,
                   res,
                   item,
                   [ambiguity_resolution_mode, cas_zero_mode, handler = std::move(handler)](
-                    const auto& e) mutable {
+                    const auto& e) mutable -> auto {
                     if (e) {
                       return handler(e, ambiguity_resolution_mode, cas_zero_mode);
                     }
@@ -747,14 +789,14 @@ staged_mutation_queue::commit_doc(const std::shared_ptr<attempt_context_impl>& c
                &item,
                delay,
                ambiguity_resolution_mode,
-               cas_zero_mode](const core::operations::mutate_in_response& resp) mutable {
+               cas_zero_mode](const core::operations::mutate_in_response& resp) mutable -> void {
                 auto res = result::create_from_subdoc_response(resp);
                 return validate_commit_doc_result(
                   ctx,
                   res,
                   item,
                   [ambiguity_resolution_mode, cas_zero_mode, handler = std::move(handler)](
-                    const auto& e) mutable {
+                    const auto& e) mutable -> auto {
                     if (e) {
                       return handler(e, ambiguity_resolution_mode, cas_zero_mode);
                     }
@@ -794,14 +836,14 @@ staged_mutation_queue::commit_doc(const std::shared_ptr<attempt_context_impl>& c
              &item,
              delay,
              ambiguity_resolution_mode,
-             cas_zero_mode](const operations::mutate_in_response& resp) mutable {
+             cas_zero_mode](const operations::mutate_in_response& resp) mutable -> void {
               auto res = result::create_from_mutation_response(resp);
               return validate_commit_doc_result(
                 ctx,
                 res,
                 item,
                 [ambiguity_resolution_mode, cas_zero_mode, handler = std::move(handler)](
-                  const auto& e) mutable {
+                  const auto& e) mutable -> auto {
                   if (e) {
                     return handler(e, ambiguity_resolution_mode, cas_zero_mode);
                   }
@@ -819,13 +861,18 @@ staged_mutation_queue::remove_doc(const std::shared_ptr<attempt_context_impl>& c
                                   async_constant_delay& delay,
                                   utils::movable_function<void(std::exception_ptr)> callback)
 {
-  CB_ATTEMPT_CTX_LOG_TRACE(ctx, "remove doc {}", item.id());
+  CB_LOG_TRACE("remove doc {document_id}",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", ctx->transaction_id() },
+                 { "attempt_id", ctx->id() },
+                 { "document_id", fmt::format("{}", item.id()) },
+               }));
 
   asio::post(asio::bind_executor(
     ctx->cluster_ref().io_context(),
-    [this, callback = std::move(callback), ctx, &item, delay]() mutable {
+    [this, callback = std::move(callback), ctx, &item, delay]() mutable -> void {
       auto handler = [this, ctx, &item, delay, callback = std::move(callback)](
-                       const std::optional<client_error>& e) mutable {
+                       const std::optional<client_error>& e) mutable -> void {
         if (e) {
           return handle_remove_doc_error(e.value(), ctx, item, delay, std::move(callback));
         }
@@ -835,7 +882,9 @@ staged_mutation_queue::remove_doc(const std::shared_ptr<attempt_context_impl>& c
       ctx->check_expiry_during_commit_or_rollback(
         STAGE_REMOVE_DOC, std::optional<const std::string>(item.id().key()));
       return ctx->hooks_.before_doc_removed(
-        ctx, item.id().key(), [ctx, &item, delay, handler = std::move(handler)](auto ec) mutable {
+        ctx,
+        item.id().key(),
+        [ctx, &item, delay, handler = std::move(handler)](auto ec) mutable -> auto {
           if (ec) {
             return handler(client_error(*ec, "before_doc_removed hook threw error"));
           }
@@ -844,7 +893,7 @@ staged_mutation_queue::remove_doc(const std::shared_ptr<attempt_context_impl>& c
           return ctx->cluster_ref().execute(
             req,
             [handler = std::move(handler), ctx, &item, delay](
-              const core::operations::remove_response& resp) mutable {
+              const core::operations::remove_response& resp) mutable -> auto {
               auto res = result::create_from_mutation_response(resp);
               return validate_remove_doc_result(ctx, res, item, std::move(handler));
             });
@@ -863,17 +912,23 @@ staged_mutation_queue::validate_commit_doc_result(const std::shared_ptr<attempt_
   } catch (const client_error& e) {
     return handler(e);
   }
-  CB_ATTEMPT_CTX_LOG_TRACE(ctx, "commit doc result {}", res);
+  CB_LOG_TRACE("commit doc result",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", ctx->transaction_id() },
+                 { "attempt_id", ctx->id() },
+                 { "result", fmt::format("{}", res) },
+               }));
+
   // TODO(SA): mutation tokens
   const auto key = item.id().key();
   ctx->hooks_.after_doc_committed_before_saving_cas(
-    ctx, key, [ctx, res, key, &item, handler = std::move(handler)](auto ec) mutable {
+    ctx, key, [ctx, res, key, &item, handler = std::move(handler)](auto ec) mutable -> auto {
       if (ec) {
         return handler(client_error(*ec, "after_doc_committed_before_saving_cas threw error"));
       }
       item.cas(couchbase::cas{ res.cas });
       return ctx->hooks_.after_doc_committed(
-        ctx, key, [handler = std::move(handler)](auto ec) mutable {
+        ctx, key, [handler = std::move(handler)](auto ec) mutable -> auto {
           if (ec) {
             return handler(client_error(*ec, "after_doc_committed threw error"));
           }
@@ -893,9 +948,15 @@ staged_mutation_queue::validate_remove_doc_result(const std::shared_ptr<attempt_
   } catch (const client_error& e) {
     return handler(e);
   }
-  CB_ATTEMPT_CTX_LOG_TRACE(ctx, "remove doc result {}", res);
+  CB_LOG_TRACE("remove doc result",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", ctx->transaction_id() },
+                 { "attempt_id", ctx->id() },
+                 { "result", fmt::format("{}", res) },
+               }));
+
   return ctx->hooks_.after_doc_removed_pre_retry(
-    ctx, item.id().key(), [handler = std::move(handler)](auto ec) {
+    ctx, item.id().key(), [handler = std::move(handler)](auto ec) -> auto {
       if (ec) {
         return handler(client_error(*ec, "after_doc_removed_pre_retry threw error"));
       }
@@ -915,9 +976,15 @@ staged_mutation_queue::validate_rollback_insert_result(
   } catch (const client_error& e) {
     return handler(e);
   }
-  CB_ATTEMPT_CTX_LOG_TRACE(ctx, "rollback insert result {}", res);
+  CB_LOG_TRACE("rollback insert result",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", ctx->transaction_id() },
+                 { "attempt_id", ctx->id() },
+                 { "result", fmt::format("{}", res) },
+               }));
+
   return ctx->hooks_.after_rollback_delete_inserted(
-    ctx, item.id().key(), [handler = std::move(handler)](auto ec) {
+    ctx, item.id().key(), [handler = std::move(handler)](auto ec) -> auto {
       if (ec) {
         return handler(client_error(*ec, "after_rollback_delete_insert hook threw error"));
       }
@@ -937,9 +1004,14 @@ staged_mutation_queue::validate_rollback_remove_or_replace_result(
   } catch (const client_error& e) {
     return handler(e);
   }
-  CB_ATTEMPT_CTX_LOG_TRACE(ctx, "rollback remove or replace result {}", res);
+  CB_LOG_TRACE("rollback remove or replace result",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", ctx->transaction_id() },
+                 { "attempt_id", ctx->id() },
+                 { "result", fmt::format("{}", res) },
+               }));
   return ctx->hooks_.after_rollback_replace_or_remove(
-    ctx, item.id().key(), [handler = std::move(handler)](auto ec) {
+    ctx, item.id().key(), [handler = std::move(handler)](auto ec) -> auto {
       if (ec) {
         return handler(client_error(*ec, "after_rollback_replace_or_remove hook threw error"));
       }
@@ -960,13 +1032,25 @@ staged_mutation_queue::handle_commit_doc_error(
   const error_class ec = e.ec();
   try {
     if (ctx->expiry_overtime_mode_.load()) {
-      CB_ATTEMPT_CTX_LOG_TRACE(
-        ctx, "commit_doc for {} error while in overtime mode {}", item.id(), e.what());
+      CB_LOG_TRACE("commit_doc for {document_id} error while in overtime mode {error}",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", ctx->transaction_id() },
+                     { "attempt_id", ctx->id() },
+                     { "document_id", fmt::format("{}", item.id()) },
+                     { "error", e.what() },
+                   }));
+
       throw transaction_operation_failed(FAIL_EXPIRY, "expired during commit")
         .no_rollback()
         .failed_post_commit();
     }
-    CB_ATTEMPT_CTX_LOG_TRACE(ctx, "commit_doc for {} error {}", item.id(), e.what());
+    CB_LOG_TRACE("commit_doc for {document_id} error {error}",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", ctx->transaction_id() },
+                   { "attempt_id", ctx->id() },
+                   { "document_id", fmt::format("{}", item.id()) },
+                   { "error", e.what() },
+                 }));
     switch (ec) {
       case FAIL_AMBIGUOUS:
         ambiguity_resolution_mode = true;
@@ -994,12 +1078,16 @@ staged_mutation_queue::handle_commit_doc_error(
            &item,
            delay,
            ambiguity_resolution_mode,
-           cas_zero_mode](const std::exception_ptr& exc) mutable {
+           cas_zero_mode](const std::exception_ptr& exc) mutable -> void {
       if (exc) {
         callback(exc);
         return;
       }
-      CB_ATTEMPT_CTX_LOG_TRACE(ctx, "retrying commit_doc");
+      CB_LOG_TRACE("retrying commit_doc",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", ctx->transaction_id() },
+                     { "attempt_id", ctx->id() },
+                   }));
       commit_doc(ctx, item, delay, std::move(callback), ambiguity_resolution_mode, cas_zero_mode);
     });
   } catch (const transaction_operation_failed&) {
@@ -1018,11 +1106,22 @@ staged_mutation_queue::handle_remove_doc_error(
   try {
     const auto ec = e.ec();
     if (ctx->expiry_overtime_mode_.load()) {
-      CB_ATTEMPT_CTX_LOG_TRACE(
-        ctx, "remove_doc for {} error while in overtime mode {}", item.id(), e.what());
+      CB_LOG_TRACE("remove_doc for {document_id} error while in overtime mode {error}",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", ctx->transaction_id() },
+                     { "attempt_id", ctx->id() },
+                     { "document_id", fmt::format("{}", item.id()) },
+                     { "error", e.what() },
+                   }));
       throw transaction_operation_failed(ec, e.what()).no_rollback().failed_post_commit();
     }
-    CB_ATTEMPT_CTX_LOG_TRACE(ctx, "remove_doc for {} error {}", item.id(), e.what());
+    CB_LOG_TRACE("remove_doc for {document_id} error {error}",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", ctx->transaction_id() },
+                   { "attempt_id", ctx->id() },
+                   { "document_id", fmt::format("{}", item.id()) },
+                   { "error", e.what() },
+                 }));
     switch (ec) {
       case FAIL_AMBIGUOUS:
         throw retry_operation("remove_doc got FAIL_AMBIGUOUS");
@@ -1031,12 +1130,16 @@ staged_mutation_queue::handle_remove_doc_error(
     }
   } catch (const retry_operation&) {
     delay([this, callback = std::move(callback), ctx, &item, delay](
-            const std::exception_ptr& exc) mutable {
+            const std::exception_ptr& exc) mutable -> void {
       if (exc) {
         callback(exc);
         return;
       }
-      CB_ATTEMPT_CTX_LOG_TRACE(ctx, "retrying remove_doc");
+      CB_LOG_TRACE("retrying remove_doc",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", ctx->transaction_id() },
+                     { "attempt_id", ctx->id() },
+                   }));
       remove_doc(ctx, item, delay, std::move(callback));
     });
   } catch (const transaction_operation_failed&) {
@@ -1054,21 +1157,36 @@ staged_mutation_queue::handle_rollback_insert_error(
 {
   try {
     if (ctx->expiry_overtime_mode_.load()) {
-      CB_ATTEMPT_CTX_LOG_TRACE(
-        ctx, "rollback_insert for {} error while in overtime mode {}", item.id(), e.what());
+      CB_LOG_TRACE("rollback_insert for {document_id} error while in overtime mode {error}",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", ctx->transaction_id() },
+                     { "attempt_id", ctx->id() },
+                     { "document_id", fmt::format("{}", item.id()) },
+                     { "error", e.what() },
+                   }));
       throw transaction_operation_failed(
         FAIL_EXPIRY, std::string("expired while rolling back insert with {} ") + e.what())
         .no_rollback()
         .expired();
     }
-    CB_ATTEMPT_CTX_LOG_TRACE(ctx, "rollback_insert for {} error {}", item.id(), e.what());
+    CB_LOG_TRACE("rollback_insert for {document_id} error {error}",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", ctx->transaction_id() },
+                   { "attempt_id", ctx->id() },
+                   { "document_id", fmt::format("{}", item.id()) },
+                   { "error", e.what() },
+                 }));
     switch (const auto ec = e.ec(); ec) {
       case FAIL_HARD:
       case FAIL_CAS_MISMATCH:
         throw transaction_operation_failed(ec, e.what()).no_rollback();
       case FAIL_EXPIRY:
         ctx->expiry_overtime_mode_ = true;
-        CB_ATTEMPT_CTX_LOG_TRACE(ctx, "rollback_insert in expiry overtime mode, retrying...");
+        CB_LOG_TRACE("rollback_insert in expiry overtime mode, retrying...",
+                     opentelemetry::common::MakeAttributes({
+                       { "transaction_id", ctx->transaction_id() },
+                       { "attempt_id", ctx->id() },
+                     }));
         throw retry_operation("retry rollback_insert");
       case FAIL_DOC_NOT_FOUND:
       case FAIL_PATH_NOT_FOUND:
@@ -1080,12 +1198,16 @@ staged_mutation_queue::handle_rollback_insert_error(
     }
   } catch (const retry_operation&) {
     delay([this, callback = std::move(callback), ctx, &item, delay](
-            const std::exception_ptr& exc) mutable {
+            const std::exception_ptr& exc) mutable -> void {
       if (exc) {
         callback(exc);
         return;
       }
-      CB_ATTEMPT_CTX_LOG_TRACE(ctx, "retrying rollback_insert");
+      CB_LOG_TRACE("retrying rollback_insert",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", ctx->transaction_id() },
+                     { "attempt_id", ctx->id() },
+                   }));
       rollback_insert(ctx, item, delay, std::move(callback));
     });
   } catch (const transaction_operation_failed&) {
@@ -1103,17 +1225,27 @@ staged_mutation_queue::handle_rollback_remove_or_replace_error(
 {
   try {
     if (ctx->expiry_overtime_mode_.load()) {
-      CB_ATTEMPT_CTX_LOG_TRACE(
-        ctx,
-        "rollback_remove_or_replace_error for {} error while in overtime mode {}",
-        item.id(),
-        e.what());
+      CB_LOG_TRACE(
+        "rollback_remove_or_replace_error for {document_id} error while in overtime mode {error}",
+        opentelemetry::common::MakeAttributes({
+          { "transaction_id", ctx->transaction_id() },
+          { "attempt_id", ctx->id() },
+          { "document_id", fmt::format("{}", item.id()) },
+          { "error", e.what() },
+        }));
+
       throw transaction_operation_failed(FAIL_EXPIRY,
                                          std::string("expired while handling ") + e.what())
         .no_rollback();
     }
-    CB_ATTEMPT_CTX_LOG_TRACE(
-      ctx, "rollback_remove_or_replace_error for {} error {}", item.id(), e.what());
+    CB_LOG_TRACE("rollback_remove_or_replace_error for {document_id} error {error}",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", ctx->transaction_id() },
+                   { "attempt_id", ctx->id() },
+                   { "document_id", fmt::format("{}", item.id()) },
+                   { "error", e.what() },
+                 }));
+
     switch (const auto ec = e.ec(); ec) {
       case FAIL_HARD:
       case FAIL_DOC_NOT_FOUND:
@@ -1121,7 +1253,12 @@ staged_mutation_queue::handle_rollback_remove_or_replace_error(
         throw transaction_operation_failed(ec, e.what()).no_rollback();
       case FAIL_EXPIRY:
         ctx->expiry_overtime_mode_ = true;
-        CB_ATTEMPT_CTX_LOG_TRACE(ctx, "setting expiry overtime mode in {}", STAGE_ROLLBACK_DOC);
+        CB_LOG_TRACE("setting expiry overtime mode in {stage}",
+                     opentelemetry::common::MakeAttributes({
+                       { "transaction_id", ctx->transaction_id() },
+                       { "attempt_id", ctx->id() },
+                       { "stage", STAGE_ROLLBACK_DOC },
+                     }));
         throw retry_operation("retry rollback_remove_or_replace");
       case FAIL_PATH_NOT_FOUND:
         // already cleaned up?
@@ -1132,12 +1269,16 @@ staged_mutation_queue::handle_rollback_remove_or_replace_error(
     }
   } catch (const retry_operation&) {
     delay([this, callback = std::move(callback), ctx, &item, delay](
-            const std::exception_ptr& exc) mutable {
+            const std::exception_ptr& exc) mutable -> void {
       if (exc) {
         callback(exc);
         return;
       }
-      CB_ATTEMPT_CTX_LOG_TRACE(ctx, "retrying rollback_remove_or_replace");
+      CB_LOG_TRACE("retrying rollback_remove_or_replace",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", ctx->transaction_id() },
+                     { "attempt_id", ctx->id() },
+                   }));
       rollback_remove_or_replace(ctx, item, delay, std::move(callback));
     });
   } catch (const transaction_operation_failed&) {

@@ -28,8 +28,8 @@
 #include "transactions/exceptions.hxx"
 
 #include "core/cluster.hxx"
-#include "core/logger/logger.hxx"
 #include "core/utils/movable_function.hxx"
+#include "observability/logger.hxx"
 
 #include <functional>
 #include <system_error>
@@ -179,8 +179,8 @@ public:
    */
   auto run(logic&& code) -> couchbase::transactions::transaction_result;
 
-  auto run(const couchbase::transactions::transaction_options& config,
-           logic&& code) -> couchbase::transactions::transaction_result;
+  auto run(const couchbase::transactions::transaction_options& config, logic&& code)
+    -> couchbase::transactions::transaction_result;
 
   auto run(::couchbase::transactions::txn_logic&& code,
            const couchbase::transactions::transaction_options& config)

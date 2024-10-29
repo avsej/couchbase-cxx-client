@@ -65,6 +65,8 @@ class bucket
   , public config_listener
 {
 public:
+  bucket(const bucket& /* other */) = default;
+  bucket(bucket&& /* other */) = delete;
   bucket(std::string client_id,
          asio::io_context& ctx,
          asio::ssl::context& tls,
@@ -77,6 +79,8 @@ public:
          std::vector<protocol::hello_feature> known_features,
          std::shared_ptr<impl::bootstrap_state_listener> state_listener);
   ~bucket() override;
+  auto operator=(const bucket& /* other */) -> bucket& = delete;
+  auto operator=(bucket&& /* other */) -> bucket& = delete;
 
   template<typename Request, typename Handler>
   void execute(Request request, Handler&& handler)
@@ -87,7 +91,7 @@ public:
     auto cmd = std::make_shared<operations::mcbp_command<bucket, Request>>(
       ctx_, shared_from_this(), request, default_timeout());
     cmd->start([cmd, handler = std::forward<Handler>(handler)](
-                 std::error_code ec, std::optional<io::mcbp_message>&& msg) mutable {
+                 std::error_code ec, std::optional<io::mcbp_message>&& msg) mutable -> auto {
       using encoded_response_type = typename Request::encoded_response_type;
       std::uint16_t status_code = msg ? msg->header.status() : 0xffffU;
       auto resp = msg ? encoded_response_type(std::move(*msg)) : encoded_response_type{};
@@ -97,7 +101,7 @@ public:
     if (is_configured()) {
       return map_and_send(cmd);
     }
-    return defer_command([self = shared_from_this(), cmd](std::error_code ec) {
+    return defer_command([self = shared_from_this(), cmd](std::error_code ec) -> auto {
       if (ec == errc::common::request_canceled) {
         return cmd->cancel(retry_reason::do_not_retry);
       }
@@ -111,18 +115,21 @@ public:
     if (is_closed()) {
       return cmd->cancel(retry_reason::do_not_retry);
     }
-    std::size_t index;
+    std::size_t index = 0;
     if (cmd->request.id.use_any_session()) {
       index = next_session_index();
     } else {
       auto [partition, server] = map_id(cmd->request.id);
       if (!server.has_value()) {
-        CB_LOG_TRACE(R"([{}] unable to map key="{}" to the node, id={}, partition={}, rev={})",
-                     log_prefix(),
-                     cmd->request.id,
-                     cmd->id_,
-                     partition,
-                     config_rev());
+        CB_LOG_TRACE(R"(unable to map key="{}" to the node)",
+                     opentelemetry::common::MakeAttributes({
+                       { "bucket_id", log_prefix() },
+                       { "document_id", fmt::format("{}", cmd->request.id) },
+                       { "id", cmd->id_ },
+                       { "partition", partition },
+                       { "rev", config_rev() },
+                     }));
+
         return io::retry_orchestrator::maybe_retry(
           cmd->manager_, cmd, retry_reason::node_not_available, errc::common::request_canceled);
       }
@@ -131,18 +138,19 @@ public:
     }
     auto session = find_session_by_index(index);
     if (!session || !session->has_config()) {
-      CB_LOG_TRACE(
-        R"([{}] defer operation id="{}", key="{}", partition={}, index={}, session={}, address="{}", has_config={}, rev={})",
-        log_prefix(),
-        cmd->id_,
-        cmd->request.id,
-        cmd->request.partition,
-        index,
-        session.has_value(),
-        session.has_value() ? session->bootstrap_address() : "",
-        session.has_value() && session->has_config(),
-        config_rev());
-      return defer_command([self = shared_from_this(), cmd](std::error_code ec) {
+      CB_LOG_TRACE("defer operation",
+                   opentelemetry::common::MakeAttributes({
+                     { "bucket_id", log_prefix() },
+                     { "document_id", fmt::format("{}", cmd->request.id) },
+                     { "id", cmd->id_ },
+                     { "partition", cmd->request.partition },
+                     { "index", index },
+                     { "session", session.has_value() },
+                     { "address", session.has_value() ? session->bootstrap_address() : "" },
+                     { "has_config", session.has_value() && session->has_config() },
+                     { "rev", config_rev() },
+                   }));
+      return defer_command([self = shared_from_this(), cmd](std::error_code ec) -> auto {
         if (ec == errc::common::request_canceled) {
           return cmd->cancel(retry_reason::do_not_retry);
         }
@@ -150,30 +158,34 @@ public:
       });
     }
     if (session->is_stopped()) {
-      CB_LOG_TRACE(
-        R"([{}] the session has been found for idx={}, but it is stopped, retrying id={}, key="{}", partition={}, session={}, address="{}", rev={})",
-        log_prefix(),
-        index,
-        cmd->id_,
-        cmd->request.id,
-        cmd->request.partition,
-        session->id(),
-        session->bootstrap_address(),
-        config_rev());
+      CB_LOG_TRACE("the session has been found for idx={index}, but it is stopped, retrying",
+                   opentelemetry::common::MakeAttributes({
+                     { "bucket_id", log_prefix() },
+                     { "document_id", fmt::format("{}", cmd->request.id) },
+                     { "id", cmd->id_ },
+                     { "partition", cmd->request.partition },
+                     { "index", index },
+                     { "session", session->id() },
+                     { "address", session.has_value() ? session->bootstrap_address() : "" },
+                     { "has_config", session.has_value() && session->has_config() },
+                     { "rev", config_rev() },
+                   }));
       return io::retry_orchestrator::maybe_retry(
         cmd->manager_, cmd, retry_reason::node_not_available, errc::common::request_canceled);
     }
     cmd->last_dispatched_from_ = session->local_address();
     cmd->last_dispatched_to_ = session->bootstrap_address();
-    CB_LOG_TRACE(
-      R"({} send operation id="{}", key="{}", partition={}, index={}, address="{}", rev={})",
-      session->log_prefix(),
-      cmd->id_,
-      cmd->request.id,
-      cmd->request.partition,
-      index,
-      session->bootstrap_address(),
-      config_rev());
+    CB_LOG_TRACE("send operation",
+                 opentelemetry::common::MakeAttributes({
+                   { "bucket_id", log_prefix() },
+                   { "document_id", fmt::format("{}", cmd->request.id) },
+                   { "id", cmd->id_ },
+                   { "partition", cmd->request.partition },
+                   { "index", index },
+                   { "session", session->id() },
+                   { "address", session->bootstrap_address() },
+                   { "rev", config_rev() },
+                 }));
     cmd->send_to(session.value());
   }
 
@@ -185,12 +197,13 @@ public:
       return cmd->cancel(retry_reason::do_not_retry);
     }
     cmd->retry_backoff.expires_after(duration);
-    cmd->retry_backoff.async_wait([self = shared_from_this(), cmd](std::error_code ec) mutable {
-      if (ec == asio::error::operation_aborted) {
-        return;
-      }
-      self->map_and_send(cmd);
-    });
+    cmd->retry_backoff.async_wait(
+      [self = shared_from_this(), cmd](std::error_code ec) mutable -> auto {
+        if (ec == asio::error::operation_aborted) {
+          return;
+        }
+        self->map_and_send(cmd);
+      });
   }
 
   void fetch_config();

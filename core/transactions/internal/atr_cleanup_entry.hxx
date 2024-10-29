@@ -19,7 +19,6 @@
 #include "atr_entry.hxx"
 #include "core/document_id_fmt.hxx"
 #include "core/transactions/transaction_get_result.hxx"
-#include "logging.hxx"
 
 #include <spdlog/fmt/bundled/core.h>
 
@@ -29,7 +28,6 @@
 #include <optional>
 #include <queue>
 #include <string>
-#include <thread>
 
 namespace couchbase::core::transactions
 {
@@ -46,7 +44,7 @@ class atr_cleanup_entry;
 class compare_atr_entries
 {
 public:
-  bool operator()(atr_cleanup_entry& lhs, atr_cleanup_entry& rhs);
+  auto operator()(atr_cleanup_entry& lhs, atr_cleanup_entry& rhs) -> bool;
 };
 
 // represents an atr entry we would like to clean
@@ -114,7 +112,7 @@ public:
   };
 
   template<typename OStream>
-  friend OStream& operator<<(OStream& os, const atr_cleanup_entry& e)
+  friend auto operator<<(OStream& os, const atr_cleanup_entry& e) -> OStream&
   {
     os << "atr_cleanup_entry{";
     os << "atr_id:" << e.atr_id_.key() << ",";
@@ -144,9 +142,9 @@ private:
 
 public:
   // pop, but only if the front entry's min_start_time_ is before now
-  std::optional<atr_cleanup_entry> pop(bool check_time = true);
+  auto pop(bool check_time = true) -> std::optional<atr_cleanup_entry>;
   void push(const std::shared_ptr<attempt_context>& ctx);
-  std::size_t size() const;
+  auto size() const -> std::size_t;
 };
 
 } // namespace couchbase::core::transactions

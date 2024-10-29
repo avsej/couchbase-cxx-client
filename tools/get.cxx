@@ -16,12 +16,39 @@
  */
 
 #include "get.hxx"
+
+#include "fmt_log_record_exporter.hxx"
+#include "opentelemetry/logs/severity.h"
+#include "tools/severity_filtering_processor.hxx"
 #include "utils.hxx"
 
-#include <core/logger/logger.hxx>
+#include <core/meta/version.hxx>
+
 #include <couchbase/cluster.hxx>
 #include <couchbase/codec/raw_binary_transcoder.hxx>
 #include <couchbase/codec/tao_json_serializer.hxx>
+
+#include <observability/logger.hxx>
+#include <observability/otel_tracer.hxx>
+
+#include <opentelemetry/logs/provider.h>
+
+#include <opentelemetry/trace/provider.h>
+#include <opentelemetry/trace/span_startoptions.h>
+#include <opentelemetry/trace/tracer_provider.h>
+
+#include <opentelemetry/sdk/common/global_log_handler.h>
+
+#include <opentelemetry/sdk/logs/logger_context_factory.h>
+#include <opentelemetry/sdk/logs/logger_provider_factory.h>
+#include <opentelemetry/sdk/logs/simple_log_record_processor_factory.h>
+
+#include <opentelemetry/sdk/trace/simple_processor_factory.h>
+#include <opentelemetry/sdk/trace/tracer_provider_factory.h>
+
+#include <opentelemetry/exporters/otlp/otlp_http.h>
+#include <opentelemetry/exporters/otlp/otlp_http_exporter_factory.h>
+#include <opentelemetry/exporters/otlp/otlp_http_exporter_options.h>
 
 #include <spdlog/fmt/bin_to_hex.h>
 #include <spdlog/fmt/bundled/chrono.h>
@@ -29,6 +56,8 @@
 
 #include <couchbase/fmt/cas.hxx>
 #include <couchbase/fmt/error.hxx>
+
+#include <memory>
 
 namespace cbc
 {
@@ -71,8 +100,16 @@ public:
              json_lines_,
              "Use JSON Lines format (https://jsonlines.org) to print results.");
 
+    add_flag("--use-http-logger", use_http_logger_, "Use HTTP logger instead of ostream.");
+
     add_common_options(this, common_options_);
     allow_extras(true);
+  }
+
+  [[nodiscard]] auto get_otel_tracer() const -> std::shared_ptr<opentelemetry::trace::Tracer>
+  {
+    auto provider = opentelemetry::trace::Provider::GetTracerProvider();
+    return provider->GetTracer("cbc", couchbase::core::meta::sdk_semver());
   }
 
   [[nodiscard]] auto execute() const -> int
@@ -81,46 +118,83 @@ public:
 
     auto cluster_options = build_cluster_options(common_options_);
 
-    couchbase::get_options get_options{};
+    init_otel_tracer();
+    init_otel_logger();
+
+    couchbase::get_options common_get_options{};
     if (with_expiry_) {
-      get_options.with_expiry(true);
+      common_get_options.with_expiry(true);
     }
     if (!projections_.empty()) {
-      get_options.project(projections_);
+      common_get_options.project(projections_);
     }
 
     const auto connection_string = common_options_.connection.connection_string;
 
+    auto logger = couchbase::observability::logger();
+    auto tracer = get_otel_tracer();
+
+    cluster_options.tracing().tracer(couchbase::core::tracing::otel_request_tracer::wrap(tracer));
+
     auto [connect_err, cluster] =
       couchbase::cluster::connect(connection_string, cluster_options).get();
     if (connect_err) {
-
       fail(fmt::format(
         "Failed to connect to the cluster at \"{}\": {}", connection_string, connect_err));
     }
 
-    for (const auto& id : ids_) {
-      auto bucket_name = bucket_name_;
-      auto scope_name = scope_name_;
-      auto collection_name = collection_name_;
-      auto document_id = id;
+    {
+      auto top_level_span = tracer->StartSpan("cbc.get-batch",
+                                              {
+                                                { "number_of_documents", ids_.size() },
+                                              });
+      for (const auto& id : ids_) {
+        auto bucket_name = bucket_name_;
+        auto scope_name = scope_name_;
+        auto collection_name = collection_name_;
+        auto document_id = id;
 
-      if (inlined_keyspace_) {
-        if (auto keyspace_with_id = extract_inlined_keyspace(id); keyspace_with_id) {
-          bucket_name = keyspace_with_id->bucket_name;
-          scope_name = keyspace_with_id->scope_name;
-          collection_name = keyspace_with_id->collection_name;
-          document_id = keyspace_with_id->id;
+        if (inlined_keyspace_) {
+          if (auto keyspace_with_id = extract_inlined_keyspace(id); keyspace_with_id) {
+            bucket_name = keyspace_with_id->bucket_name;
+            scope_name = keyspace_with_id->scope_name;
+            collection_name = keyspace_with_id->collection_name;
+            document_id = keyspace_with_id->id;
+          }
         }
-      }
 
-      auto collection = cluster.bucket(bucket_name).scope(scope_name).collection(collection_name);
+        auto collection = cluster.bucket(bucket_name).scope(scope_name).collection(collection_name);
 
-      auto [err, resp] = collection.get(document_id, get_options).get();
-      if (json_lines_) {
-        print_result_json_line(bucket_name, scope_name, collection_name, document_id, err, resp);
-      } else {
-        print_result(bucket_name, scope_name, collection_name, document_id, err, resp);
+        opentelemetry::trace::StartSpanOptions span_options;
+        span_options.parent = top_level_span->GetContext();
+        auto span = tracer->StartSpan("cbc.get",
+                                      {
+                                        { "cbc.bucket", bucket_name },
+                                        { "cbc.scope", scope_name },
+                                        { "cbc.collection", collection_name },
+                                      },
+                                      span_options);
+        auto get_options = common_get_options;
+        get_options.parent_span(couchbase::core::tracing::otel_request_span::wrap(span));
+        auto [err, resp] = collection.get(document_id, get_options).get();
+        CB_LOG_WARNING("");
+        CB_LOG_WARNING("this is the message error");
+        CB_LOG_WARNING("this is the message error: {msg}",
+                       opentelemetry::common::MakeAttributes({
+                         { "msg", err.ec().message() },
+                       }));
+        CB_LOG_WARNING("this is the message error: {msg} and some context",
+                       opentelemetry::common::MakeAttributes({
+                         { "msg", err.ec().message() },
+                       }),
+                       span->GetContext());
+        CB_LOG_ERROR("this is the message error: {}", err.ec().message(), span->GetContext());
+
+        if (json_lines_) {
+          print_result_json_line(bucket_name, scope_name, collection_name, document_id, err, resp);
+        } else {
+          print_result(bucket_name, scope_name, collection_name, document_id, err, resp);
+        }
       }
     }
 
@@ -226,6 +300,73 @@ private:
     }
   }
 
+  void init_otel_tracer() const
+  {
+    using namespace opentelemetry;
+
+    if (use_http_tracer_) {
+#if USE_HTTP_EXPORTER
+      exporter::otlp::OtlpHttpExporterOptions opts;
+      auto exporter = exporter::otlp::OtlpHttpExporterFactory::Create(opts);
+      auto processor = sdk::trace::SimpleSpanProcessorFactory::Create(std::move(exporter));
+      auto resource = sdk::resource::Resource::Create({
+        { "service.name", "cbc" },
+        { "service.version", couchbase::core::meta::sdk_semver() },
+      });
+      auto provider = sdk::trace::TracerProviderFactory::Create(std::move(processor), resource);
+      trace::Provider::SetTracerProvider(
+        std::shared_ptr<trace::TracerProvider>{ std::move(provider) });
+    } else {
+#endif
+    }
+  }
+
+  void init_otel_logger() const
+  {
+    fmt::println(stderr, "init_logger");
+
+    using namespace opentelemetry;
+
+    if (use_http_logger_) {
+      // exporter::otlp::OtlpHttpLogRecordExporterOptions logger_options;
+      // auto exporter = exporter::otlp::OtlpHttpLogRecordExporterFactory::Create(logger_options);
+      // auto processor = sdk::logs::SimpleLogRecordProcessorFactory::Create(std::move(exporter));
+      // auto resource = sdk::resource::Resource::Create({
+      //   { "service.name", "cbc" },
+      //   { "service.version", couchbase::core::meta::sdk_semver() },
+      // });
+      // std::vector<std::unique_ptr<sdk::logs::LogRecordProcessor>> processors;
+      // processors.emplace_back(std::move(processor));
+      // auto context = sdk::logs::LoggerContextFactory::Create(std::move(processors), resource);
+      // std::shared_ptr<logs::LoggerProvider> provider =
+      //   sdk::logs::LoggerProviderFactory::Create(std::move(context));
+      // logs::Provider::SetLoggerProvider(provider);
+    } else {
+
+      fmt::println(stderr, "use couchbase::observability::fmt_log_exporter");
+      auto exporter = std::make_unique<couchbase::observability::fmt_log_exporter>(stderr);
+      auto processor = std::make_unique<couchbase::observability::severity_filtering_processor>(
+        sdk::logs::SimpleLogRecordProcessorFactory::Create(std::move(exporter)),
+        logs::Severity::kTrace);
+      std::vector<std::unique_ptr<sdk::logs::LogRecordProcessor>> processors;
+      processors.emplace_back(std::move(processor));
+      auto context = sdk::logs::LoggerContextFactory::Create(std::move(processors));
+      std::shared_ptr<logs::LoggerProvider> provider =
+        sdk::logs::LoggerProviderFactory::Create(std::move(context));
+      logs::Provider::SetLoggerProvider(provider);
+
+      CB_LOG_DEBUG("Test Debug",
+                   opentelemetry::common::MakeAttributes({
+                     { "custom_property", "hello, world" },
+                   }));
+
+      CB_LOG_CRITICAL("Test Debug",
+                      opentelemetry::common::MakeAttributes({
+                        { "custom_property", "hello, world" },
+                      }));
+    }
+  }
+
   common_options common_options_{};
 
   std::string bucket_name_{ default_bucket_name };
@@ -238,6 +379,9 @@ private:
   bool pretty_json_{ false };
   bool json_lines_{ false };
   bool verbose_{ false };
+
+  bool use_http_tracer_{ false };
+  bool use_http_logger_{ false };
 
   std::vector<std::string> ids_{};
 };

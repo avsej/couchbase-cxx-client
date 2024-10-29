@@ -24,7 +24,6 @@
 #ifdef COUCHBASE_CXX_CLIENT_COLUMNAR
 #include "core/columnar/bootstrap_notification_subscriber.hxx"
 #endif
-#include "core/logger/logger.hxx"
 #include "core/metrics/meter_wrapper.hxx"
 #include "core/operations/http_noop.hxx"
 #include "core/service_type.hxx"
@@ -34,6 +33,7 @@
 #include "http_context.hxx"
 #include "http_session.hxx"
 #include "http_traits.hxx"
+#include "observability/logger.hxx"
 
 #include <gsl/narrow>
 
@@ -248,45 +248,45 @@ public:
             app_telemetry_meter_,
             options_.default_timeout_for(request.type));
 #endif
-          cmd->start([start = std::chrono::steady_clock::now(),
-                      self = shared_from_this(),
-                      type,
-                      cmd,
-                      handler =
-                        collector->build_reporter()](operations::http_noop_response&& resp) {
-            diag::ping_state state = diag::ping_state::ok;
-            std::optional<std::string> error{};
-            if (auto ec = resp.ctx.ec; ec) {
-              if (ec == errc::common::unambiguous_timeout ||
-                  ec == errc::common::ambiguous_timeout) {
-                state = diag::ping_state::timeout;
-              } else {
-                state = diag::ping_state::error;
+          cmd->start(
+            [start = std::chrono::steady_clock::now(),
+             self = shared_from_this(),
+             type,
+             cmd,
+             handler = collector->build_reporter()](operations::http_noop_response&& resp) {
+              diag::ping_state state = diag::ping_state::ok;
+              std::optional<std::string> error{};
+              if (auto ec = resp.ctx.ec; ec) {
+                if (ec == errc::common::unambiguous_timeout ||
+                    ec == errc::common::ambiguous_timeout) {
+                  state = diag::ping_state::timeout;
+                } else {
+                  state = diag::ping_state::error;
+                }
+                error.emplace(fmt::format("code={}, message={}, http_code={}",
+                                          ec.value(),
+                                          ec.message(),
+                                          resp.ctx.http_status));
               }
-              error.emplace(fmt::format("code={}, message={}, http_code={}",
-                                        ec.value(),
-                                        ec.message(),
-                                        resp.ctx.http_status));
-            }
-            auto remote_address = cmd->session_->remote_address();
-            // If not connected, the remote address will be empty.  Better to
-            // give the user some context on the "attempted" remote address.
-            if (remote_address.empty()) {
-              remote_address =
-                fmt::format("{}:{}", cmd->session_->hostname(), cmd->session_->port());
-            }
-            handler->report(
-              diag::endpoint_ping_info{ type,
-                                        cmd->session_->id(),
-                                        std::chrono::duration_cast<std::chrono::microseconds>(
-                                          std::chrono::steady_clock::now() - start),
-                                        remote_address,
-                                        cmd->session_->local_address(),
-                                        state,
-                                        {},
-                                        error });
-            self->check_in(type, cmd->session_);
-          });
+              auto remote_address = cmd->session_->remote_address();
+              // If not connected, the remote address will be empty.  Better to
+              // give the user some context on the "attempted" remote address.
+              if (remote_address.empty()) {
+                remote_address =
+                  fmt::format("{}:{}", cmd->session_->hostname(), cmd->session_->port());
+              }
+              handler->report(
+                diag::endpoint_ping_info{ type,
+                                          cmd->session_->id(),
+                                          std::chrono::duration_cast<std::chrono::microseconds>(
+                                            std::chrono::steady_clock::now() - start),
+                                          remote_address,
+                                          cmd->session_->local_address(),
+                                          state,
+                                          {},
+                                          error });
+              self->check_in(type, cmd->session_);
+            });
 
           cmd->set_command_session(session);
           if (!session->is_connected()) {

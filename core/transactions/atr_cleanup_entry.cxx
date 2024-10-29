@@ -20,16 +20,17 @@
 #include "durability_level.hxx"
 #include "forward_compat.hxx"
 
+#include "core/document_id_fmt.hxx"
 #include "core/operations.hxx"
 #include "core/transactions.hxx"
 #include "internal/atr_cleanup_entry.hxx"
 #include "internal/doc_record_fmt.hxx"
 #include "internal/exceptions_internal.hxx"
 #include "internal/exceptions_internal_fmt.hxx"
-#include "internal/logging.hxx"
 #include "internal/transaction_context.hxx"
 #include "internal/transactions_cleanup.hxx"
 #include "internal/utils.hxx"
+#include "observability/logger.hxx"
 #include "result.hxx"
 #include "result_fmt.hxx"
 
@@ -96,24 +97,37 @@ atr_cleanup_entry::atr_cleanup_entry(const std::shared_ptr<attempt_context>& ctx
 void
 atr_cleanup_entry::clean(transactions_cleanup_attempt* result)
 {
-  CB_ATTEMPT_CLEANUP_LOG_TRACE("cleaning {}", *this);
+  CB_LOG_TRACE("cleaning {cleanup_entry_ptr}",
+               opentelemetry::common::MakeAttributes({
+                 { "subsystem", "transactions_cleanup" },
+                 { "cleanup_entry_ptr", fmt::format("{}", *this) },
+               }));
   // get atr entry if needed
   const atr_entry entry;
   if (nullptr == atr_entry_) {
     auto atr = active_transaction_record::get_atr(cleanup_->cluster_ref(), atr_id_);
     if (atr) {
       // now get the specific attempt
-      auto it = std::find_if(atr->entries().begin(), atr->entries().end(), [&](const atr_entry& e) {
-        return e.attempt_id() == attempt_id_;
-      });
+      auto it =
+        std::find_if(atr->entries().begin(), atr->entries().end(), [&](const atr_entry& e) -> bool {
+          return e.attempt_id() == attempt_id_;
+        });
       if (it != atr->entries().end()) {
         atr_entry_ = &(*it);
         return check_atr_and_cleanup(result);
       }
-      CB_ATTEMPT_CLEANUP_LOG_TRACE("could not find attempt {}, nothing to clean", attempt_id_);
+      CB_LOG_TRACE("could not find attempt {attempt_id}, nothing to clean",
+                   opentelemetry::common::MakeAttributes({
+                     { "subsystem", "transactions_cleanup" },
+                     { "attempt_id", attempt_id_ },
+                   }));
       return;
     }
-    CB_ATTEMPT_CLEANUP_LOG_TRACE("could not find atr {}, nothing to clean", atr_id_);
+    CB_LOG_TRACE("could not find atr {attempt_id}, nothing to clean",
+                 opentelemetry::common::MakeAttributes({
+                   { "subsystem", "transactions_cleanup" },
+                   { "attempt_id", attempt_id_ },
+                 }));
     return;
   }
   check_atr_and_cleanup(result);
@@ -129,7 +143,7 @@ atr_cleanup_entry::check_atr_and_cleanup(transactions_cleanup_attempt* result)
     durability_level = store_string_to_durability_level(durability_level_raw.value());
   }
   if (check_if_expired_ && !atr_entry_->has_expired(safety_margin_ms_)) {
-    CB_ATTEMPT_CLEANUP_LOG_TRACE("not expired, nothing to clean");
+    CB_LOG_TRACE("not expired, nothing to clean");
     return;
   }
   if (result != nullptr) {
@@ -141,14 +155,14 @@ atr_cleanup_entry::check_atr_and_cleanup(transactions_cleanup_attempt* result)
     throw *err;
   }
   cleanup_docs(durability_level);
-  auto ec = wait_for_hook([this](auto handler) {
+  auto ec = wait_for_hook([this](auto handler) -> auto {
     return cleanup_->config().cleanup_hooks->on_cleanup_docs_completed(std::move(handler));
   });
   if (ec) {
     throw client_error(*ec, "on_cleanup_docs_completed hook threw error");
   }
   cleanup_entry(durability_level);
-  ec = wait_for_hook([this](auto handler) {
+  ec = wait_for_hook([this](auto handler) -> auto {
     return cleanup_->config().cleanup_hooks->on_cleanup_completed(std::move(handler));
   });
   if (ec) {
@@ -173,8 +187,11 @@ atr_cleanup_entry::cleanup_docs(durability_level dl)
       remove_txn_links(atr_entry_->removed_ids(), dl);
       break;
     default:
-      CB_ATTEMPT_CLEANUP_LOG_TRACE("attempt in {}, nothing to do in cleanup_docs",
-                                   attempt_state_name(atr_entry_->state()));
+      CB_LOG_TRACE("attempt in {state}, nothing to do in cleanup_docs",
+                   opentelemetry::common::MakeAttributes({
+                     { "subsystem", "transactions_cleanup" },
+                     { "state", attempt_state_name(atr_entry_->state()) },
+                   }));
   }
 }
 
@@ -204,41 +221,51 @@ atr_cleanup_entry::do_per_doc(const std::vector<doc_record>& docs,
       req.access_deleted = true;
       // now a blocking lookup_in...
       auto barrier = std::make_shared<std::promise<core::operations::lookup_in_response>>();
-      cleanup_->cluster_ref().execute(req, [barrier](core::operations::lookup_in_response resp) {
-        barrier->set_value(std::move(resp));
-      });
+      cleanup_->cluster_ref().execute(req,
+                                      [barrier](core::operations::lookup_in_response resp) -> void {
+                                        barrier->set_value(std::move(resp));
+                                      });
       auto f = barrier->get_future();
       auto res = f.get();
 
       if (res.ctx.ec() || res.fields.empty()) {
-        CB_ATTEMPT_CLEANUP_LOG_TRACE("cannot create a transaction document for {}, ec={}, ignoring",
-                                     dr.document_id(),
-                                     res.ctx.ec().message());
+        CB_LOG_TRACE("cannot create a transaction document for {document_id}, ignoring",
+                     opentelemetry::common::MakeAttributes({
+                       { "document_id", fmt::format("{}", dr.document_id()) },
+                       { "error_message", res.ctx.ec().message() },
+                     }));
         continue;
       }
       auto doc = transaction_get_result::create_from(res);
       // now let's decide if we call the function or not
       if (!doc.links().is_document_in_transaction() || !doc.links().has_staged_write()) {
-        CB_ATTEMPT_CLEANUP_LOG_TRACE("document {} has no staged content - assuming it was "
-                                     "committed and skipping",
-                                     dr.id());
+        CB_LOG_TRACE(
+          "document {document_id} has no staged content - assuming it was committed and skipping",
+          opentelemetry::common::MakeAttributes({
+            { "document_id", fmt::format("{}", dr.document_id()) },
+          }));
         continue;
       }
       if (doc.links().staged_attempt_id() != attempt_id_) {
-        CB_ATTEMPT_CLEANUP_LOG_TRACE("document {} staged for different attempt {}, skipping",
-                                     dr.id(),
-                                     doc.links().staged_attempt_id().value_or("<none>)"));
+        CB_LOG_TRACE(
+          "document {document_id} staged for different attempt {staged_attempt_id}, skipping",
+          opentelemetry::common::MakeAttributes({
+            { "document_id", fmt::format("{}", dr.id()) },
+            { "staged_attempt_id", doc.links().staged_attempt_id().value_or("<none>") },
+          }));
         continue;
       }
       if (require_crc_to_match) {
         if (const auto& metadata = doc.metadata(); metadata.has_value()) {
           if (!metadata->crc32() || !doc.links().crc32_of_staging() ||
               doc.links().crc32_of_staging() != metadata->crc32()) {
-            CB_ATTEMPT_CLEANUP_LOG_TRACE(
-              "document {} crc32 {} doesn't match staged value {}, skipping",
-              dr.id(),
-              metadata->crc32().value_or("<none>"),
-              doc.links().crc32_of_staging().value_or("<none>"));
+            CB_LOG_TRACE("document {document_id} crc32 {crc32} doesn't match staged value "
+                         "{staged_crc32}, skipping",
+                         opentelemetry::common::MakeAttributes({
+                           { "document_id", fmt::format("{}", dr.id()) },
+                           { "crc32", metadata->crc32().value_or("<none>") },
+                           { "staged_crc32", doc.links().crc32_of_staging().value_or("<none>") },
+                         }));
             continue;
           }
         }
@@ -248,10 +275,16 @@ atr_cleanup_entry::do_per_doc(const std::vector<doc_record>& docs,
       const error_class ec = e.ec();
       switch (ec) {
         case FAIL_DOC_NOT_FOUND:
-          CB_ATTEMPT_CLEANUP_LOG_ERROR("document {} not found - ignoring ", dr);
+          CB_LOG_ERROR("document {document_record} not found - ignoring ",
+                       opentelemetry::common::MakeAttributes({
+                         { "document_record", fmt::format("{}", dr) },
+                       }));
           break;
         default:
-          CB_ATTEMPT_CLEANUP_LOG_ERROR("got error \"{}\", not ignoring this", e.what());
+          CB_LOG_ERROR("got error \"{error_message}\", not ignoring this",
+                       opentelemetry::common::MakeAttributes({
+                         { "error_message", e.what() },
+                       }));
           throw;
       }
     }
@@ -262,10 +295,10 @@ void
 atr_cleanup_entry::commit_docs(std::optional<std::vector<doc_record>> docs, durability_level dl)
 {
   if (docs) {
-    do_per_doc(*docs, true, [&](transaction_get_result& doc, bool) {
+    do_per_doc(*docs, true, [&](transaction_get_result& doc, bool) -> void {
       if (doc.links().has_staged_content()) {
         auto content = doc.links().staged_content_json_or_binary();
-        auto ec = wait_for_hook([this, key = doc.id().key()](auto handler) {
+        auto ec = wait_for_hook([this, key = doc.id().key()](auto handler) -> auto {
           return cleanup_->config().cleanup_hooks->before_commit_doc(key, std::move(handler));
         });
         if (ec) {
@@ -276,11 +309,11 @@ atr_cleanup_entry::commit_docs(std::optional<std::vector<doc_record>> docs, dura
           req.flags = content.flags;
           auto barrier = std::make_shared<std::promise<result>>();
           auto f = barrier->get_future();
-          cleanup_->cluster_ref().execute(wrap_durable_request(req, dl),
-                                          [barrier](const core::operations::insert_response& resp) {
-                                            barrier->set_value(
-                                              result::create_from_mutation_response(resp));
-                                          });
+          cleanup_->cluster_ref().execute(
+            wrap_durable_request(req, dl),
+            [barrier](const core::operations::insert_response& resp) -> void {
+              barrier->set_value(result::create_from_mutation_response(resp));
+            });
           wrap_operation_future(f);
         } else {
           core::operations::mutate_in_request req{ doc.id() };
@@ -297,17 +330,21 @@ atr_cleanup_entry::commit_docs(std::optional<std::vector<doc_record>> docs, dura
           auto barrier = std::make_shared<std::promise<result>>();
           auto f = barrier->get_future();
           cleanup_->cluster_ref().execute(
-            req, [barrier](const core::operations::mutate_in_response& resp) {
+            req, [barrier](const core::operations::mutate_in_response& resp) -> void {
               barrier->set_value(result::create_from_subdoc_response(resp));
             });
           wrap_operation_future(f);
         }
-        CB_ATTEMPT_CLEANUP_LOG_TRACE("commit_docs replaced content of doc {} with {}",
-                                     doc.id(),
-                                     utils::to_string(content.data));
+        CB_LOG_TRACE("commit_docs replaced content of doc {document_id} with {content}",
+                     opentelemetry::common::MakeAttributes({
+                       { "document_id", fmt::format("{}", doc.id()) },
+                       { "content", utils::to_string(content.data) },
+                     }));
       } else {
-        CB_ATTEMPT_CLEANUP_LOG_TRACE("commit_docs skipping document {}, no staged content",
-                                     doc.id());
+        CB_LOG_TRACE("commit_docs skipping document {document_id}, no staged content",
+                     opentelemetry::common::MakeAttributes({
+                       { "document_id", fmt::format("{}", doc.id()) },
+                     }));
       }
     });
   }
@@ -316,8 +353,8 @@ void
 atr_cleanup_entry::remove_docs(std::optional<std::vector<doc_record>> docs, durability_level dl)
 {
   if (docs) {
-    do_per_doc(*docs, true, [&](transaction_get_result& doc, bool is_deleted) {
-      auto ec = wait_for_hook([this, key = doc.id().key()](auto handler) mutable {
+    do_per_doc(*docs, true, [&](transaction_get_result& doc, bool is_deleted) -> void {
+      auto ec = wait_for_hook([this, key = doc.id().key()](auto handler) mutable -> auto {
         return cleanup_->config().cleanup_hooks->before_remove_doc(key, std::move(handler));
       });
       if (ec) {
@@ -337,7 +374,7 @@ atr_cleanup_entry::remove_docs(std::optional<std::vector<doc_record>> docs, dura
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
         cleanup_->cluster_ref().execute(
-          req, [barrier](const core::operations::mutate_in_response& resp) {
+          req, [barrier](const core::operations::mutate_in_response& resp) -> void {
             barrier->set_value(result::create_from_subdoc_response(resp));
           });
         wrap_operation_future(f);
@@ -348,12 +385,15 @@ atr_cleanup_entry::remove_docs(std::optional<std::vector<doc_record>> docs, dura
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
         cleanup_->cluster_ref().execute(
-          req, [barrier](const core::operations::remove_response& resp) {
+          req, [barrier](const core::operations::remove_response& resp) -> void {
             barrier->set_value(result::create_from_mutation_response(resp));
           });
         wrap_operation_future(f);
       }
-      CB_ATTEMPT_CLEANUP_LOG_TRACE("remove_docs removed doc {}", doc.id());
+      CB_LOG_TRACE("remove_docs removed doc {document_id}",
+                   opentelemetry::common::MakeAttributes({
+                     { "document_id", fmt::format("{}", doc.id()) },
+                   }));
     });
   }
 }
@@ -363,9 +403,9 @@ atr_cleanup_entry::remove_docs_staged_for_removal(std::optional<std::vector<doc_
                                                   durability_level dl)
 {
   if (docs) {
-    do_per_doc(*docs, true, [&](transaction_get_result& doc, bool) {
+    do_per_doc(*docs, true, [&](transaction_get_result& doc, bool) -> void {
       if (doc.links().is_document_being_removed()) {
-        auto ec = wait_for_hook([this, key = doc.id().key()](auto handler) mutable {
+        auto ec = wait_for_hook([this, key = doc.id().key()](auto handler) mutable -> auto {
           return cleanup_->config().cleanup_hooks->before_remove_doc_staged_for_removal(
             key, std::move(handler));
         });
@@ -378,15 +418,20 @@ atr_cleanup_entry::remove_docs_staged_for_removal(std::optional<std::vector<doc_
         auto barrier = std::make_shared<std::promise<result>>();
         auto f = barrier->get_future();
         cleanup_->cluster_ref().execute(
-          req, [barrier](const core::operations::remove_response& resp) {
+          req, [barrier](const core::operations::remove_response& resp) -> void {
             barrier->set_value(result::create_from_mutation_response(resp));
           });
         wrap_operation_future(f);
-        CB_ATTEMPT_CLEANUP_LOG_TRACE("remove_docs_staged_for_removal removed doc {}", doc.id());
+        CB_LOG_TRACE("remove_docs_staged_for_removal removed doc {document_id}",
+                     opentelemetry::common::MakeAttributes({
+                       { "document_id", fmt::format("{}", doc.id()) },
+                     }));
       } else {
-        CB_ATTEMPT_CLEANUP_LOG_TRACE("remove_docs_staged_for_removal found document {} not "
-                                     "marked for removal, skipping",
-                                     doc.id());
+        CB_LOG_TRACE("remove_docs_staged_for_removal found document {document_id} not marked for "
+                     "removal, skipping",
+                     opentelemetry::common::MakeAttributes({
+                       { "document_id", fmt::format("{}", doc.id()) },
+                     }));
       }
     });
   }
@@ -397,8 +442,8 @@ atr_cleanup_entry::remove_txn_links(std::optional<std::vector<doc_record>> docs,
                                     durability_level dl)
 {
   if (docs) {
-    do_per_doc(*docs, false, [&](transaction_get_result& doc, bool) {
-      auto ec = wait_for_hook([this, key = doc.id().key()](auto handler) mutable {
+    do_per_doc(*docs, false, [&](transaction_get_result& doc, bool) -> void {
+      auto ec = wait_for_hook([this, key = doc.id().key()](auto handler) mutable -> auto {
         return cleanup_->config().cleanup_hooks->before_remove_links(key, std::move(handler));
       });
       if (ec) {
@@ -417,11 +462,14 @@ atr_cleanup_entry::remove_txn_links(std::optional<std::vector<doc_record>> docs,
       auto barrier = std::make_shared<std::promise<result>>();
       auto f = barrier->get_future();
       cleanup_->cluster_ref().execute(
-        req, [barrier](const core::operations::mutate_in_response& resp) {
+        req, [barrier](const core::operations::mutate_in_response& resp) -> void {
           barrier->set_value(result::create_from_subdoc_response(resp));
         });
       wrap_operation_future(f);
-      CB_ATTEMPT_CLEANUP_LOG_TRACE("remove_txn_links removed links for doc {}", doc.id());
+      CB_LOG_TRACE("remove_txn_links removed links for doc {document_id}",
+                   opentelemetry::common::MakeAttributes({
+                     { "document_id", fmt::format("{}", doc.id()) },
+                   }));
     });
   }
 }
@@ -430,7 +478,7 @@ void
 atr_cleanup_entry::cleanup_entry(durability_level dl)
 {
   try {
-    auto ec = wait_for_hook([this](auto handler) {
+    auto ec = wait_for_hook([this](auto handler) -> auto {
       return cleanup_->config().cleanup_hooks->before_atr_remove(std::move(handler));
     });
     if (ec) {
@@ -449,23 +497,33 @@ atr_cleanup_entry::cleanup_entry(durability_level dl)
     wrap_durable_request(req, dl);
     auto barrier = std::make_shared<std::promise<result>>();
     auto f = barrier->get_future();
-    cleanup_->cluster_ref().execute(req,
-                                    [barrier](const core::operations::mutate_in_response& resp) {
-                                      barrier->set_value(result::create_from_subdoc_response(resp));
-                                    });
+    cleanup_->cluster_ref().execute(
+      req, [barrier](const core::operations::mutate_in_response& resp) -> void {
+        barrier->set_value(result::create_from_subdoc_response(resp));
+      });
     wrap_operation_future(f);
-    CB_ATTEMPT_CLEANUP_LOG_TRACE("successfully removed attempt {}", attempt_id_);
+    CB_LOG_TRACE("successfully removed attempt {attempt_id}",
+                 opentelemetry::common::MakeAttributes({
+                   { "attempt_id", attempt_id_ },
+                 }));
   } catch (const client_error& e) {
     error_class ec = e.ec();
     switch (ec) {
       case FAIL_PATH_NOT_FOUND:
-        CB_ATTEMPT_CLEANUP_LOG_TRACE(
-          "found attempt {} has also inserted 'p' field indicating collision with main algo",
-          attempt_id_);
+        CB_LOG_TRACE("found attempt {attemtpt_id} has also inserted 'p' field indicating collision "
+                     "with main algo",
+                     opentelemetry::common::MakeAttributes({
+                       { "attempt_id", attempt_id_ },
+                     }));
         return;
       default:
-        CB_ATTEMPT_CLEANUP_LOG_ERROR(
-          "cleanup couldn't remove attempt {} due to {} {}", attempt_id_, ec, e.what());
+        CB_LOG_ERROR(
+          "cleanup couldn't remove attempt {attempt_id} due to {error_class} {error_message}",
+          opentelemetry::common::MakeAttributes({
+            { "attempt_id", attempt_id_ },
+            { "error_class", ec },
+            { "error_message", e.what() },
+          }));
         throw;
     }
   }

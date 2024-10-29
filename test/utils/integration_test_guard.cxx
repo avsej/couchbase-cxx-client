@@ -17,7 +17,6 @@
 
 #include "integration_test_guard.hxx"
 
-#include "core/logger/logger.hxx"
 #include "core/operations/management/freeform.hxx"
 #include "core/protocol/cmd_get_cluster_config.hxx"
 #include "core/transactions.hxx"
@@ -25,11 +24,14 @@
 #include "core/utils/join_strings.hxx"
 #include "core/utils/json.hxx"
 #include "logger.hxx"
+#include "observability/logger.hxx"
 #include "test_data.hxx"
 
 namespace test::utils
 {
-static void
+namespace
+{
+void
 set_thread_name(const char* name)
 {
 #if defined(__APPLE__)
@@ -45,13 +47,13 @@ set_thread_name(const char* name)
 #endif
 }
 
-static auto
+auto
 spawn_io_threads(asio::io_context& io, std::size_t number_of_threads) -> std::vector<std::thread>
 {
   std::vector<std::thread> threads;
   threads.reserve(number_of_threads);
   for (std::size_t i = 0; i < number_of_threads; i++) {
-    threads.emplace_back([&io, i]() mutable {
+    threads.emplace_back([&io, i]() mutable -> void {
       set_thread_name(fmt::format("cxx_io_{}", i).c_str());
       io.run();
     });
@@ -59,7 +61,7 @@ spawn_io_threads(asio::io_context& io, std::size_t number_of_threads) -> std::ve
   return threads;
 }
 
-static auto
+auto
 build_origin(const test_context& ctx,
              const couchbase::core::cluster_credentials& auth,
              const couchbase::core::utils::connection_string& connstr) -> couchbase::core::origin
@@ -74,6 +76,7 @@ build_origin(const test_context& ctx,
   }
   return origin;
 }
+} // namespace
 
 integration_test_guard::integration_test_guard()
   : ctx(test_context::load_from_environment())
@@ -211,9 +214,10 @@ auto
 integration_test_guard::number_of_nodes_with_service(std::string type) -> std::size_t
 {
   const auto& ci = load_cluster_info();
-  const auto result = std::count_if(ci.nodes.begin(), ci.nodes.end(), [type](const auto& node) {
-    return std::find(node.services.begin(), node.services.end(), type) != node.services.end();
-  });
+  const auto result =
+    std::count_if(ci.nodes.begin(), ci.nodes.end(), [type](const auto& node) -> auto {
+      return std::find(node.services.begin(), node.services.end(), type) != node.services.end();
+    });
   return static_cast<std::size_t>(result);
 }
 
@@ -251,6 +255,7 @@ integration_test_guard::server_groups() -> std::vector<std::string>
 {
   auto bucket_info = load_bucket_info(ctx.bucket);
   std::vector<std::string> groups;
+  groups.reserve(bucket_info.server_groups.size());
   for (const auto& [name, _] : bucket_info.server_groups) {
     groups.emplace_back(name);
   }

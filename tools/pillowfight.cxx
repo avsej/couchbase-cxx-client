@@ -440,12 +440,13 @@ public:
     stats_timer.cancel();
 
     fmt::print("\n\nTotal operations: {}\n", total);
-    fmt::print(
-      "Total keys used: {}\n",
-      std::accumulate(
-        known_keys.begin(), known_keys.end(), std::size_t{ 0 }, [](auto count, const auto& keys) {
-          return count + keys.size();
-        }));
+    fmt::print("Total keys used: {}\n",
+               std::accumulate(known_keys.begin(),
+                               known_keys.end(),
+                               std::size_t{ 0 },
+                               [](auto count, const auto& keys) -> auto {
+                                 return count + keys.size();
+                               }));
     const auto total_time = finish_time - start_time;
     fmt::print("Total time: {}s ({}ms)\n",
                std::chrono::duration_cast<std::chrono::seconds>(total_time).count(),

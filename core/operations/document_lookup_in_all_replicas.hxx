@@ -24,11 +24,11 @@
 #include "core/operations/document_lookup_in.hxx"
 #include "core/operations/operation_traits.hxx"
 #include "core/utils/movable_function.hxx"
+#include "observability/logger.hxx"
 
 #include <couchbase/codec/encoded_value.hxx>
 #include <couchbase/error_codes.hxx>
 
-#include <functional>
 #include <memory>
 #include <mutex>
 
@@ -82,7 +82,7 @@ struct lookup_in_all_replicas_request {
        parent_span = parent_span,
        read_preference = read_preference,
        access_deleted = access_deleted,
-       h = std::forward<Handler>(handler)](std::error_code ec) mutable {
+       h = std::forward<Handler>(handler)](std::error_code ec) mutable -> auto {
         if (ec) {
           std::optional<std::string> first_error_path{};
           std::optional<std::size_t> first_error_index{};
@@ -102,8 +102,8 @@ struct lookup_in_all_replicas_request {
            parent_span,
            read_preference,
            access_deleted,
-           h = std::forward<Handler>(h)](std::error_code ec,
-                                         std::shared_ptr<topology::configuration> config) mutable {
+           h = std::forward<Handler>(h)](
+            std::error_code ec, std::shared_ptr<topology::configuration> config) mutable -> auto {
             if (!config->capabilities.supports_subdoc_read_replica()) {
               ec = errc::common::feature_not_available;
             }
@@ -116,11 +116,12 @@ struct lookup_in_all_replicas_request {
             auto nodes =
               impl::effective_nodes(id, config, read_preference, origin.options().server_group);
             if (nodes.empty()) {
-              CB_LOG_DEBUG(
-                "Unable to retrieve replicas for \"{}\", server_group={}, number_of_replicas={}",
-                id,
-                origin.options().server_group,
-                config->num_replicas.value_or(0));
+              CB_LOG_DEBUG("Unable to retrieve replicas for \"{document_id}\"",
+                           opentelemetry::common::MakeAttributes({
+                             { "document_id", fmt::format("{}", id) },
+                             { "server_group", origin.options().server_group },
+                             { "number_of_replicas", config->num_replicas.value_or(0) },
+                           }));
               ec = errc::key_value::document_irretrievable;
             }
 
@@ -159,7 +160,7 @@ struct lookup_in_all_replicas_request {
                   std::move(replica_id), specs, timeout, parent_span
                 };
                 replica_req.access_deleted = access_deleted;
-                core->execute(replica_req, [ctx](auto&& resp) {
+                core->execute(replica_req, [ctx](auto&& resp) -> auto {
                   handler_type local_handler{};
                   {
                     std::scoped_lock lock(ctx->mutex_);
@@ -207,7 +208,7 @@ struct lookup_in_all_replicas_request {
               } else {
                 core->execute(
                   lookup_in_request{ document_id{ id }, {}, {}, false, specs, timeout },
-                  [ctx](auto&& resp) {
+                  [ctx](auto&& resp) -> auto {
                     handler_type local_handler{};
                     {
                       std::scoped_lock lock(ctx->mutex_);

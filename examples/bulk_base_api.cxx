@@ -41,6 +41,7 @@ struct program_arguments {
 
   static auto load_from_environment() -> program_arguments
   {
+    // NOLINTBEGIN(concurrency-mt-unsafe)
     program_arguments arguments;
     if (const auto val = safe_getenv("CB_CONNECTION_STRING"); val) {
       arguments.connection_string = *val;
@@ -74,6 +75,7 @@ struct program_arguments {
         arguments.document_body_size = int_val;
       }
     }
+    // NOLINTEND(concurrency-mt-unsafe)
     return arguments;
   }
 

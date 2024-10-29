@@ -23,10 +23,10 @@
 
 #include "couchbase/error_codes.hxx"
 #include "internal/exceptions_internal.hxx"
-#include "internal/logging.hxx"
 #include "internal/transaction_context.hxx"
 #include "internal/transactions_cleanup.hxx"
 #include "internal/utils.hxx"
+#include "observability/logger.hxx"
 
 #include <couchbase/error.hxx>
 #include <couchbase/fmt/error.hxx>
@@ -68,16 +68,22 @@ transactions::create(
 
     auto bucket_name = config.metadata_collection->bucket;
     return cluster.open_bucket(
-      bucket_name, [cluster, config, bucket_name, cb = std::move(cb)](std::error_code ec) mutable {
+      bucket_name,
+      [cluster, config, bucket_name, cb = std::move(cb)](std::error_code ec) mutable -> void {
         if (ec) {
-          CB_TXN_LOG_ERROR("error opening metadata_collection bucket '{}' specified in the config!",
-                           bucket_name);
+          CB_LOG_ERROR(
+            "error opening metadata_collection bucket '{bucket_name}' specified in the config!",
+            opentelemetry::common::MakeAttributes({
+              { "bucket_name", bucket_name },
+            }));
           return cb(ec, {});
         }
 
-        CB_TXN_LOG_DEBUG("couchbase transactions {} ({}) creating new transaction object",
-                         couchbase::core::meta::sdk_id(),
-                         couchbase::core::meta::os());
+        CB_LOG_DEBUG("couchbase transactions {sdk_id} ({os}) creating new transaction object",
+                     opentelemetry::common::MakeAttributes({
+                       { "sdk_id", couchbase::core::meta::sdk_id() },
+                       { "os", couchbase::core::meta::os() },
+                     }));
         return cb({}, std::make_shared<transactions>(std::move(cluster), config));
       });
   }
@@ -101,7 +107,7 @@ transactions::create(core::cluster cluster,
 {
   auto barrier =
     std::make_shared<std::promise<std::pair<std::error_code, std::shared_ptr<transactions>>>>();
-  create(std::move(cluster), config, [barrier](auto ec, const auto& txns) mutable {
+  create(std::move(cluster), config, [barrier](auto ec, const auto& txns) mutable -> auto {
     barrier->set_value({ ec, txns });
   });
   return barrier->get_future();
@@ -138,15 +144,15 @@ wrap_run(transactions& txns,
     auto f = barrier->get_future();
     auto finalize_handler =
       [&, barrier](std::optional<transaction_exception> err,
-                   std::optional<couchbase::transactions::transaction_result> result) {
-        if (result) {
-          return barrier->set_value(std::move(result));
-        }
-        if (err) {
-          return barrier->set_exception(std::make_exception_ptr(*err));
-        }
-        barrier->set_value({});
-      };
+                   std::optional<couchbase::transactions::transaction_result> result) -> auto {
+      if (result) {
+        return barrier->set_value(std::move(result));
+      }
+      if (err) {
+        return barrier->set_exception(std::make_exception_ptr(*err));
+      }
+      barrier->set_value({});
+    };
     try {
       fn(overall->current_attempt_context());
     } catch (...) {
@@ -173,18 +179,19 @@ wrap_public_api_run(transactions& txns,
                     std::size_t max_attempts,
                     Handler&& fn) -> ::couchbase::transactions::transaction_result
 {
-  return wrap_run(txns, config, max_attempts, [fn = std::forward<Handler>(fn)](const auto& ctx) {
-    const couchbase::error err = fn(ctx);
-    if (err && err.ec() != errc::transaction_op::transaction_op_failed) {
-      // We intentionally don't handle transaction_op_failed here, as we must have cached the
-      // transaction error internally already, which has the full context with the right error class
-      // etc.
-      if (err.ec().category() == core::impl::transaction_op_category()) {
-        throw op_exception(err);
+  return wrap_run(
+    txns, config, max_attempts, [fn = std::forward<Handler>(fn)](const auto& ctx) -> auto {
+      const couchbase::error err = fn(ctx);
+      if (err && err.ec() != errc::transaction_op::transaction_op_failed) {
+        // We intentionally don't handle transaction_op_failed here, as we must have cached the
+        // transaction error internally already, which has the full context with the right error
+        // class etc.
+        if (err.ec().category() == core::impl::transaction_op_category()) {
+          throw op_exception(err);
+        }
+        throw std::system_error(err.ec(), fmt::format("{}", err));
       }
-      throw std::system_error(err.ec(), fmt::format("{}", err));
-    }
-  });
+    });
 }
 
 auto
@@ -220,7 +227,7 @@ transactions::run(const couchbase::transactions::transaction_options& config,
                   async_logic&& code,
                   txn_complete_callback&& cb)
 {
-  std::thread([this, config, code = std::move(code), cb = std::move(cb)]() {
+  std::thread([this, config, code = std::move(code), cb = std::move(cb)]() -> void {
     try {
       auto result = wrap_run(*this, config, max_attempts_, code);
       return cb({}, result);
@@ -234,7 +241,7 @@ transactions::run(couchbase::transactions::async_txn_logic&& code,
                   couchbase::transactions::async_txn_complete_logic&& cb,
                   const couchbase::transactions::transaction_options& config)
 {
-  std::thread([this, config, code = std::move(code), cb = std::move(cb)]() {
+  std::thread([this, config, code = std::move(code), cb = std::move(cb)]() -> void {
     try {
       auto result = wrap_public_api_run(*this, config, max_attempts_, code);
       return cb({}, result);
@@ -265,8 +272,8 @@ transactions::notify_fork(fork_event event)
 void
 transactions::close()
 {
-  CB_TXN_LOG_DEBUG("closing transactions");
+  CB_LOG_DEBUG("closing transactions");
   cleanup_->close();
-  CB_TXN_LOG_DEBUG("transactions closed");
+  CB_LOG_DEBUG("transactions closed");
 }
 } // namespace couchbase::core::transactions

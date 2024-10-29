@@ -34,7 +34,6 @@
 #ifdef COUCHBASE_CXX_CLIENT_COLUMNAR
 #include "core/io/config_tracker.hxx"
 #endif
-#include "core/logger/logger.hxx"
 #include "core/management/analytics_link_azure_blob_external.hxx"
 #include "core/management/analytics_link_couchbase_remote.hxx"
 #include "core/management/analytics_link_s3_external.hxx"
@@ -156,6 +155,7 @@
 #include "dispatcher.hxx"
 #include "impl/dns_srv_tracker.hxx"
 #include "mozilla_ca_bundle.hxx"
+#include "observability/logger.hxx"
 #include "ping_collector.hxx"
 #include "ping_reporter.hxx"
 
@@ -344,11 +344,10 @@ public:
                            std::ios::out | std::ios::app | std::ios::binary);
       keylog << std::string_view(line) << std::endl;
     });
-    CB_LOG_CRITICAL("COUCHBASE_CXX_CLIENT_TLS_KEY_LOG_FILE was set to \"{}\" during build, all TLS "
-                    "keys will be logged "
-                    "for network analysis "
-                    "(https://wiki.wireshark.org/TLS). DO NOT USE THIS BUILD IN PRODUCTION",
-                    COUCHBASE_CXX_CLIENT_TLS_KEY_LOG_FILE);
+    CB_LOG_CRITICAL(
+      "COUCHBASE_CXX_CLIENT_TLS_KEY_LOG_FILE was set to \"" COUCHBASE_CXX_CLIENT_TLS_KEY_LOG_FILE
+      "\" during build, all TLS keys will be logged for network analysis "
+      "(https://wiki.wireshark.org/TLS). DO NOT USE THIS BUILD IN PRODUCTION");
 #endif
   }
 
@@ -365,11 +364,13 @@ public:
     }
 
     origin_ = std::move(origin);
-    CB_LOG_DEBUG(R"(open cluster, id: "{}", core version: "{}", connection string: {}, {})",
-                 id_,
-                 couchbase::core::meta::sdk_semver(),
-                 origin_.connection_string(),
-                 origin_.to_json());
+    CB_LOG_DEBUG("open cluster",
+                 opentelemetry::common::MakeAttributes({
+                   { "id", id_ },
+                   { "core_version", couchbase::core::meta::sdk_semver() },
+                   { "connection_string", origin_.connection_string() },
+                   { "options", origin_.to_json() },
+                 }));
     setup_observability();
     if (origin_.options().enable_dns_srv) {
       std::string hostname;
@@ -381,25 +382,28 @@ public:
         ctx_,
         [self = shared_from_this(),
          hostname = std::move(hostname),
-         handler = std::move(handler)]() mutable {
+         handler = std::move(handler)]() mutable -> void {
           return self->dns_srv_tracker_->get_srv_nodes(
             [self, hostname = std::move(hostname), handler = std::move(handler)](
-              origin::node_list nodes, std::error_code ec) mutable {
+              origin::node_list nodes, std::error_code ec) mutable -> void {
               if (ec) {
 #ifdef __clang_analyzer__
                 // TODO(CXXCBC-549): clang-tidy-19 reports potential memory leak here
                 [[clang::suppress]]
 #endif
-                return self->close([ec, handler = std::move(handler)]() mutable {
+                return self->close([ec, handler = std::move(handler)]() mutable -> void {
                   handler(ec);
                 });
               }
               if (!nodes.empty()) {
                 self->origin_.set_nodes(std::move(nodes));
-                CB_LOG_INFO(
-                  "replace list of bootstrap nodes with addresses from DNS SRV of \"{}\": [{}]",
-                  hostname,
-                  utils::join_strings(self->origin_.get_nodes(), ", "));
+                CB_LOG_INFO("replace list of bootstrap nodes with addresses from DNS SRV of "
+                            "\"{hostname}\": [{nodes}]",
+                            opentelemetry::common::MakeAttributes({
+                              { "id", self->id_ },
+                              { "hostname", hostname },
+                              { "nodes", utils::join_strings(self->origin_.get_nodes(), ", ") },
+                            }));
               }
               return self->do_open(std::move(handler));
             });
@@ -416,7 +420,10 @@ public:
       return handler(errc::network::cluster_closed);
     }
     if (background_open_started_) {
-      CB_LOG_DEBUG("Background open already started for cluster, id: \"{}\"", id_);
+      CB_LOG_DEBUG("Background open already started for cluster",
+                   opentelemetry::common::MakeAttributes({
+                     { "id", id_ },
+                   }));
       return handler({});
     }
     if (origin.get_nodes().empty()) {
@@ -426,10 +433,12 @@ public:
     }
 
     origin_ = std::move(origin);
-    CB_LOG_DEBUG(R"(open cluster in background, id: "{}", core version: "{}", {})",
-                 id_,
-                 couchbase::core::meta::sdk_semver(),
-                 origin_.to_json());
+    CB_LOG_DEBUG("open cluster in background",
+                 opentelemetry::common::MakeAttributes({
+                   { "id", id_ },
+                   { "core_version", couchbase::core::meta::sdk_semver() },
+                   { "options", origin_.to_json() },
+                 }));
     setup_observability();
     session_manager_->set_dispatch_timeout(origin_.options().dispatch_timeout);
     // at this point we will infinitely try to connect
@@ -489,7 +498,7 @@ public:
 
     b->on_configuration_update(session_manager_);
     b->bootstrap([self = shared_from_this(), bucket_name, handler = std::move(handler)](
-                   std::error_code ec, const topology::configuration& config) mutable {
+                   std::error_code ec, const topology::configuration& config) mutable -> void {
       if (ec) {
         const std::scoped_lock lock(self->buckets_mutex_);
         self->buckets_.erase(bucket_name);
@@ -549,16 +558,17 @@ public:
         make_key_value_error_context(errc::common::bucket_not_found, request.id), response_type{}));
     }
     auto bucket_name = request.id.bucket();
-    return open_bucket(bucket_name,
-                       [self = shared_from_this(),
-                        request = std::move(request),
-                        handler = std::forward<Handler>(handler)](std::error_code ec) mutable {
-                         if (ec) {
-                           return handler(request.make_response(
-                             make_key_value_error_context(ec, request.id), response_type{}));
-                         }
-                         return self->execute(std::move(request), std::forward<Handler>(handler));
-                       });
+    return open_bucket(
+      bucket_name,
+      [self = shared_from_this(),
+       request = std::move(request),
+       handler = std::forward<Handler>(handler)](std::error_code ec) mutable -> auto {
+        if (ec) {
+          return handler(
+            request.make_response(make_key_value_error_context(ec, request.id), response_type{}));
+        }
+        return self->execute(std::move(request), std::forward<Handler>(handler));
+      });
   }
 
   template<class Request,
@@ -601,7 +611,7 @@ public:
        bucket_name,
        cap,
        request = std::move(request),
-       handler = std::forward<Handler>(handler)](std::error_code ec) mutable {
+       handler = std::forward<Handler>(handler)](std::error_code ec) mutable -> auto {
         if (ec) {
           handler(request.make_response({ ec }, {}));
           return;
@@ -609,7 +619,8 @@ public:
         return self->with_bucket_configuration(
           bucket_name,
           [self, cap, request = std::move(request), handler = std::forward<Handler>(handler)](
-            std::error_code ec, const std::shared_ptr<topology::configuration>& config) mutable {
+            std::error_code ec,
+            const std::shared_ptr<topology::configuration>& config) mutable -> auto {
             if (ec) {
               handler(request.make_response({ ec }, {}));
               return;
@@ -653,10 +664,11 @@ public:
   {
     // Warn users if idle_http_connection_timeout is too close to server idle timeouts
     if (origin_.options().idle_http_connection_timeout > std::chrono::milliseconds(4'500)) {
-      CB_LOG_INFO("[{}]: The SDK may produce trivial warnings due to the idle HTTP connection "
-                  "timeout being set above the idle"
-                  "timeout of various services",
-                  id_);
+      CB_LOG_INFO("The SDK may produce trivial warnings due to the idle HTTP connection "
+                  "timeout being set above the idle timeout of various services",
+                  opentelemetry::common::MakeAttributes({
+                    { "id", id_ },
+                  }));
     }
 
     // Warn users if they attempt to use Capella without TLS being enabled.
@@ -674,10 +686,12 @@ public:
       }
 
       if (has_capella_host && !origin_.options().enable_tls) {
-        CB_LOG_WARNING("[{}]: TLS is required when connecting to Couchbase Capella. Please enable "
-                       "TLS by prefixing "
-                       "the connection string with \"couchbases://\" (note the final 's').",
-                       id_);
+        CB_LOG_WARNING(
+          "TLS is required when connecting to Couchbase Capella. Please enable TLS by prefixing "
+          "the connection string with \"couchbases://\" (note the final 's').",
+          opentelemetry::common::MakeAttributes({
+            { "id", id_ },
+          }));
       }
 
       if (origin_.options().enable_tls /* TLS is enabled */
@@ -687,10 +701,12 @@ public:
           && origin_.options().tls_verify != tls_verify_mode::none /* The user did not disable all TLS verification */
           &&
           has_non_capella_host /* The connection string has a hostname that does NOT end in ".cloud.couchbase.com" */) {
-        CB_LOG_WARNING("[{}] When TLS is enabled, the cluster options must specify certificate(s) "
+        CB_LOG_WARNING("When TLS is enabled, the cluster options must specify certificate(s) "
                        "to trust or ensure that they are "
                        "available in system CA store. (Unless connecting to cloud.couchbase.com.)",
-                       id_);
+                       opentelemetry::common::MakeAttributes({
+                         { "id", id_ },
+                       }));
       }
     }
 
@@ -700,13 +716,20 @@ public:
       if (origin_.options().trust_certificate.empty() &&
           origin_.options()
             .trust_certificate_value.empty()) { // trust certificate is not explicitly specified
-        CB_LOG_DEBUG(R"([{}]: use default CA for TLS verify)", id_);
+        CB_LOG_DEBUG("use default CA for TLS verify",
+                     opentelemetry::common::MakeAttributes({
+                       { "id", id_ },
+                     }));
         std::error_code ec{};
 
         // load system certificates
         tls_.set_default_verify_paths(ec);
         if (ec) {
-          CB_LOG_WARNING(R"([{}]: failed to load system CAs: {})", id_, ec.message());
+          CB_LOG_WARNING("failed to load system CAs",
+                         opentelemetry::common::MakeAttributes({
+                           { "id", id_ },
+                           { "error_message", ec.message() },
+                         }));
         }
 
         // add the Capella Root CA in addition to system CAs
@@ -715,26 +738,34 @@ public:
                              strlen(couchbase::core::default_ca::capellaCaCert)),
           ec);
         if (ec) {
-          CB_LOG_WARNING("[{}]: unable to load default CAs: {}", id_, ec.message());
+          CB_LOG_WARNING("unable to load default CAs: {}",
+                         opentelemetry::common::MakeAttributes({
+                           { "id", id_ },
+                           { "error_message", ec.message() },
+                         }));
           // we don't consider this fatal and try to continue without it
         }
 
         if (const auto certificates = default_ca::mozilla_ca_certs();
             !origin_.options().disable_mozilla_ca_certificates && !certificates.empty()) {
-          CB_LOG_DEBUG("[{}]: loading {} CA certificates from Mozilla bundle. Update date: \"{}\", "
-                       "SHA256: \"{}\"",
-                       id_,
-                       certificates.size(),
-                       default_ca::mozilla_ca_certs_date(),
-                       default_ca::mozilla_ca_certs_sha256());
+          CB_LOG_DEBUG("loading {number_of_certificates} CA certificates from Mozilla bundle. "
+                       "Update date: \"{date}\", SHA256: \"{checksum}\"",
+                       opentelemetry::common::MakeAttributes({
+                         { "id", id_ },
+                         { "number_of_certificates", certificates.size() },
+                         { "date", default_ca::mozilla_ca_certs_date() },
+                         { "checksum", default_ca::mozilla_ca_certs_sha256() },
+                       }));
           for (const auto& cert : certificates) {
             tls_.add_certificate_authority(asio::const_buffer(cert.body.data(), cert.body.size()),
                                            ec);
             if (ec) {
-              CB_LOG_WARNING("[{}]: unable to load CA \"{}\" from Mozilla bundle: {}",
-                             id_,
-                             cert.authority,
-                             ec.message());
+              CB_LOG_WARNING("unable to load CA \"{authority}\" from Mozilla bundle",
+                             opentelemetry::common::MakeAttributes({
+                               { "id", id_ },
+                               { "authority", cert.authority },
+                               { "error_message", ec.message() },
+                             }));
             }
           }
         }
@@ -743,30 +774,41 @@ public:
         // load only the explicit certificate
         // system and default capella certificates are not loaded
         if (!origin_.options().trust_certificate_value.empty()) {
-          CB_LOG_DEBUG(R"([{}]: use TLS certificate passed through via options object)", id_);
+          CB_LOG_DEBUG("use TLS certificate passed through via options object",
+                       opentelemetry::common::MakeAttributes({
+                         { "id", id_ },
+                       }));
           tls_.add_certificate_authority(
             asio::const_buffer(origin_.options().trust_certificate_value.data(),
                                origin_.options().trust_certificate_value.size()),
             ec);
           if (ec) {
-            CB_LOG_WARNING(
-              "[{}]: unable to load CA passed via options object: {}", id_, ec.message());
+            CB_LOG_WARNING("unable to load CA passed via options object",
+                           opentelemetry::common::MakeAttributes({
+                             { "id", id_ },
+                             { "error_message", ec.message() },
+                           }));
           }
         }
         if (!origin_.options().trust_certificate.empty()) {
-          CB_LOG_DEBUG(
-            R"([{}]: use TLS verify file: "{}")", id_, origin_.options().trust_certificate);
+          CB_LOG_DEBUG(R"(use TLS verify file: "{}")",
+                       opentelemetry::common::MakeAttributes({
+                         { "id", id_ },
+                         { "trust_certificate", origin_.options().trust_certificate },
+                       }));
           tls_.load_verify_file(origin_.options().trust_certificate, ec);
           if (ec) {
-            CB_LOG_ERROR("[{}]: unable to load verify file \"{}\": {}",
-                         id_,
-                         origin_.options().trust_certificate,
-                         ec.message());
+            CB_LOG_ERROR("unable to load verify file \"{trust_certificate}\"",
+                         opentelemetry::common::MakeAttributes({
+                           { "id", id_ },
+                           { "trust_certificate", origin_.options().trust_certificate },
+                           { "error_message", ec.message() },
+                         }));
 #ifdef __clang_analyzer__
             // TODO(CXXCBC-549): clang-tidy-19 reports potential memory leak here
             [[clang::suppress]]
 #endif
-            return close([ec, handler = std::move(handler)]() mutable {
+            return close([ec, handler = std::move(handler)]() mutable -> void {
               return handler(ec);
             });
           }
@@ -774,31 +816,45 @@ public:
       }
       if (origin_.credentials().uses_certificate()) {
         std::error_code ec{};
-        CB_LOG_DEBUG(R"([{}]: use TLS certificate chain: "{}")", id_, origin_.certificate_path());
+        CB_LOG_DEBUG(R"(use TLS certificate chain: "{certificate_path}")",
+                     opentelemetry::common::MakeAttributes({
+                       { "id", id_ },
+                       { "certificate_path", origin_.certificate_path() },
+                     }));
         tls_.use_certificate_chain_file(origin_.certificate_path(), ec);
         if (ec) {
-          CB_LOG_ERROR("[{}]: unable to load certificate chain \"{}\": {}",
-                       id_,
-                       origin_.certificate_path(),
-                       ec.message());
+          CB_LOG_ERROR("unable to load certificate chain \"{certificate_path}\"",
+                       opentelemetry::common::MakeAttributes({
+                         { "id", id_ },
+                         { "certificate_path", origin_.certificate_path() },
+                         { "error_message", ec.message() },
+                       }));
 #ifdef __clang_analyzer__
           // TODO(CXXCBC-549): clang-tidy-19 reports potential memory leak here
           [[clang::suppress]]
 #endif
-          return close([ec, handler = std::move(handler)]() mutable {
+          return close([ec, handler = std::move(handler)]() mutable -> void {
             return handler(ec);
           });
         }
-        CB_LOG_DEBUG(R"([{}]: use TLS private key: "{}")", id_, origin_.key_path());
+        CB_LOG_DEBUG(R"(use TLS private key: "{}")",
+                     opentelemetry::common::MakeAttributes({
+                       { "id", id_ },
+                       { "key_path", origin_.key_path() },
+                     }));
         tls_.use_private_key_file(origin_.key_path(), asio::ssl::context::file_format::pem, ec);
         if (ec) {
-          CB_LOG_ERROR(
-            "[{}]: unable to load private key \"{}\": {}", id_, origin_.key_path(), ec.message());
+          CB_LOG_ERROR("unable to load private key \"{}\": {}",
+                       opentelemetry::common::MakeAttributes({
+                         { "id", id_ },
+                         { "key_path", origin_.key_path() },
+                         { "error_message", ec.message() },
+                       }));
 #ifdef __clang_analyzer__
           // TODO(CXXCBC-549): clang-tidy-19 reports potential memory leak here
           [[clang::suppress]]
 #endif
-          return close([ec, handler = std::move(handler)]() mutable {
+          return close([ec, handler = std::move(handler)]() mutable -> void {
             return handler(ec);
           });
         }
@@ -807,52 +863,60 @@ public:
     } else {
       session_ = io::mcbp_session(id_, {}, ctx_, origin_, dns_srv_tracker_);
     }
-    session_->bootstrap([self = shared_from_this(), handler = std::move(handler)](
-                          std::error_code ec, const topology::configuration& config) mutable {
-      if (!ec) {
-        if (self->origin_.options().network == "auto") {
-          self->origin_.options().network =
-            config.select_network(self->session_->bootstrap_hostname());
-          if (self->origin_.options().network == "default") {
-            CB_LOG_DEBUG(R"({} detected network is "{}")",
-                         self->session_->log_prefix(),
-                         self->origin_.options().network);
-          } else {
-            CB_LOG_INFO(R"({} detected network is "{}")",
-                        self->session_->log_prefix(),
-                        self->origin_.options().network);
+    session_->bootstrap(
+      [self = shared_from_this(), handler = std::move(handler)](
+        std::error_code ec, const topology::configuration& config) mutable -> void {
+        if (!ec) {
+          if (self->origin_.options().network == "auto") {
+            self->origin_.options().network =
+              config.select_network(self->session_->bootstrap_hostname());
+            if (self->origin_.options().network == "default") {
+              CB_LOG_DEBUG(R"(detected network is "default")",
+                           opentelemetry::common::MakeAttributes({
+                             { "session_id", self->session_->log_prefix() },
+                           }));
+            } else {
+              CB_LOG_INFO(R"({} detected network is "{network}")",
+                          opentelemetry::common::MakeAttributes({
+                            { "session_id", self->session_->log_prefix() },
+                            { "network", self->origin_.options().network },
+                          }));
+            }
           }
-        }
-        if (self->origin_.options().network != "default") {
-          self->origin_.set_nodes_from_config(config);
-          CB_LOG_INFO(
-            "replace list of bootstrap nodes with addresses of alternative network \"{}\": [{}]",
-            self->origin_.options().network,
-            utils::join_strings(self->origin_.get_nodes(), ","));
-        }
-        // FIXME(SA): fix the session manager to receive initial configuration and cluster-wide
-        // session to poll for updates like the bucket does. Or just subscribe before the bootstrap.
-        self->session_manager_->set_configuration(config, self->origin_.options());
-        self->session_->on_configuration_update(self->session_manager_);
-        self->session_->on_configuration_update(self->app_telemetry_reporter_);
-        self->app_telemetry_reporter_->update_config(config);
-        self->session_->on_stop([self]() {
-          if (self->session_) {
-            self->session_.reset();
+          if (self->origin_.options().network != "default") {
+            self->origin_.set_nodes_from_config(config);
+            CB_LOG_INFO("replace list of bootstrap nodes with addresses of alternative network "
+                        "\"{network}\": [{nodes}]",
+                        opentelemetry::common::MakeAttributes({
+                          { "session_id", self->session_->log_prefix() },
+                          { "network", self->origin_.options().network },
+                          { "nodes", utils::join_strings(self->origin_.get_nodes(), ",") },
+                        }));
           }
-        });
-      }
-      if (ec) {
+          // FIXME(SA): fix the session manager to receive initial configuration and cluster-wide
+          // session to poll for updates like the bucket does. Or just subscribe before the
+          // bootstrap.
+          self->session_manager_->set_configuration(config, self->origin_.options());
+          self->session_->on_configuration_update(self->session_manager_);
+          self->session_->on_configuration_update(self->app_telemetry_reporter_);
+          self->app_telemetry_reporter_->update_config(config);
+          self->session_->on_stop([self]() -> void {
+            if (self->session_) {
+              self->session_.reset();
+            }
+          });
+        }
+        if (ec) {
 #ifdef __clang_analyzer__
-        // TODO(CXXCBC-549): clang-tidy-19 reports potential memory leak here
-        [[clang::suppress]]
+          // TODO(CXXCBC-549): clang-tidy-19 reports potential memory leak here
+          [[clang::suppress]]
 #endif
-        return self->close([ec, handler = std::move(handler)]() mutable {
-          handler(ec);
-        });
-      }
-      handler(ec);
-    });
+          return self->close([ec, handler = std::move(handler)]() mutable -> void {
+            handler(ec);
+          });
+        }
+        handler(ec);
+      });
   }
 
 #ifdef COUCHBASE_CXX_CLIENT_COLUMNAR
@@ -864,13 +928,20 @@ public:
     configure_tls_options(true);
     if (origin_.options().security_options.trust_only_capella) {
       std::error_code ec{};
-      CB_LOG_DEBUG(R"([{}]: use Capella CA for TLS verify)", id_);
+      CB_LOG_DEBUG(R"(use Capella CA for TLS verify)",
+                   opentelemetry::common::MakeAttributes({
+                     { "id", id_ },
+                   }));
       tls_.add_certificate_authority(
         asio::const_buffer(couchbase::core::default_ca::capellaCaCert,
                            strlen(couchbase::core::default_ca::capellaCaCert)),
         ec);
       if (ec) {
-        CB_LOG_WARNING("[{}]: unable to load Capella CAs: {}", id_, ec.message());
+        CB_LOG_WARNING("unable to load Capella CAs",
+                       opentelemetry::common::MakeAttributes({
+                         { "id", id_ },
+                         { "error_message", ec.message() },
+                       }));
         // we don't consider this fatal and try to continue without it
       }
     } else if (origin_.options().security_options.trust_only_pem_file ||
@@ -881,37 +952,52 @@ public:
                .trust_certificate_value.empty() /* and certificate value has not been specified */
           && origin_.options().tls_verify !=
                tls_verify_mode::none /* The user did not disable all TLS verification */) {
-        CB_LOG_WARNING("[{}] When TLS is enabled, the cluster options must specify certificate(s) "
-                       "to trust or ensure that they are "
-                       "available in system CA store.",
-                       id_);
+        CB_LOG_WARNING("When TLS is enabled, the cluster options must specify certificate(s) "
+                       "to trust or ensure that they are available in system CA store.",
+                       opentelemetry::common::MakeAttributes({
+                         { "id", id_ },
+                       }));
       }
       std::error_code ec{};
       // load only the explicit certificate
       // system and default capella certificates are not loaded
       if (!origin_.options().trust_certificate_value.empty()) {
-        CB_LOG_DEBUG(R"([{}]: use TLS certificate passed through via options object)", id_);
+        CB_LOG_DEBUG(R"(use TLS certificate passed through via options object)",
+                     opentelemetry::common::MakeAttributes({
+                       { "id", id_ },
+                     }));
         tls_.add_certificate_authority(
           asio::const_buffer(origin_.options().trust_certificate_value.data(),
                              origin_.options().trust_certificate_value.size()),
           ec);
         if (ec) {
-          CB_LOG_WARNING(
-            "[{}]: unable to load CA passed via options object: {}", id_, ec.message());
+          CB_LOG_WARNING("unable to load CA passed via options object",
+                         opentelemetry::common::MakeAttributes({
+                           { "id", id_ },
+                           { "error_message", ec.message() },
+                         }));
         }
       }
       if (!origin_.options().trust_certificate.empty()) {
-        CB_LOG_DEBUG(
-          R"([{}]: use TLS verify file: "{}")", id_, origin_.options().trust_certificate);
+        CB_LOG_DEBUG(R"(use TLS verify file: "{trust_certificate}")",
+                     opentelemetry::common::MakeAttributes({
+                       { "id", id_ },
+                       { "trust_certificate", origin_.options().trust_certificate },
+                     }));
         tls_.load_verify_file(origin_.options().trust_certificate, ec);
         if (ec) {
-          CB_LOG_ERROR("[{}]: unable to load verify file \"{}\": {}",
-                       id_,
-                       origin_.options().trust_certificate,
-                       ec.message());
+          CB_LOG_ERROR("unable to load verify file \"{trust_certificate}\"",
+                       opentelemetry::common::MakeAttributes({
+                         { "id", id_ },
+                         { "trust_certificate", origin_.options().trust_certificate },
+                         { "error_message", ec.message() },
+                       }));
           auto backoff = std::chrono::milliseconds(500);
-          CB_LOG_DEBUG(
-            "[{}] waiting for {}ms before retrying TLS verify file.", id_, backoff.count());
+          CB_LOG_DEBUG("waiting for {backoff_timeout} before retrying TLS verify file.",
+                       opentelemetry::common::MakeAttributes({
+                         { "id", id_ },
+                         { "backoff_timeout", fmt::format("{}", backoff) },
+                       }));
           backoff_then_retry(backoff, [self = shared_from_this()]() {
             self->do_background_open();
           });
@@ -919,22 +1005,36 @@ public:
       }
     } else if (origin_.options().security_options.trust_only_platform) {
       // TODO(CXXCBC-548): security_options updates (use Mozilla certs?)
-      CB_LOG_DEBUG(R"([{}]: use default CA for TLS verify)", id_);
+      CB_LOG_DEBUG("use default CA for TLS verify",
+                   opentelemetry::common::MakeAttributes({
+                     { "id", id_ },
+                   }));
       std::error_code ec{};
       // load system certificates
       tls_.set_default_verify_paths(ec);
       if (ec) {
-        CB_LOG_WARNING(R"([{}]: failed to load system CAs: {})", id_, ec.message());
+        CB_LOG_WARNING("failed to load system CAs",
+                       opentelemetry::common::MakeAttributes({
+                         { "id", id_ },
+                         { "error_message", ec.message() },
+                       }));
       }
     } else if (!origin_.options().security_options.trust_only_certificates.empty()) {
       std::error_code ec{};
-      CB_LOG_DEBUG("[{}]: loading {} user provided CA certificates.",
-                   id_,
-                   origin_.options().security_options.trust_only_certificates.size());
+      CB_LOG_DEBUG("loading {number_of_certificates} user provided CA certificates.",
+                   opentelemetry::common::MakeAttributes({
+                     { "id", id_ },
+                     { "number_of_certificates",
+                       origin_.options().security_options.trust_only_certificates.size() },
+                   }));
       for (const auto& cert : origin_.options().security_options.trust_only_certificates) {
         tls_.add_certificate_authority(asio::const_buffer(cert.data(), cert.size()), ec);
         if (ec) {
-          CB_LOG_WARNING("[{}]: unable to load CA: {}", id_, ec.message());
+          CB_LOG_WARNING("unable to load CA",
+                         opentelemetry::common::MakeAttributes({
+                           { "id", id_ },
+                           { "error_message", ec.message() },
+                         }));
         }
       }
     }
@@ -957,7 +1057,11 @@ public:
           return;
         }
         if (ec) {
-          CB_LOG_WARNING("[{}] Retry callback received error ec={}.", self->id_, ec.message());
+          CB_LOG_WARNING("Retry callback received error",
+                         opentelemetry::common::MakeAttributes({
+                           { "id", self->id_ },
+                           { "error_message", ec.message() },
+                         }));
         }
         cb();
       });
@@ -978,8 +1082,12 @@ public:
             if (ec) {
               auto backoff = std::chrono::milliseconds(500);
               self->session_manager_->notify_bootstrap_error({ ec, ec.message(), hostname, {} });
-              CB_LOG_DEBUG(
-                "[{}] waiting for {}ms before retrying DNS query.", self->id_, backoff.count());
+              CB_LOG_DEBUG("waiting for {backoff_timeout} before retrying DNS query.",
+                           opentelemetry::common::MakeAttributes({
+                             { "id", self->id_ },
+                             { "backoff_timeout", fmt::format("{}", backoff) },
+                           }));
+
               self->backoff_then_retry(backoff, [self]() {
                 self->do_background_dns_srv_open();
               });
@@ -987,11 +1095,13 @@ public:
             }
             if (!nodes.empty()) {
               self->origin_.set_nodes(std::move(nodes));
-              CB_LOG_INFO(
-                "[{}] Replace list of bootstrap nodes with addresses from DNS SRV of \"{}\": [{}]",
-                self->id_,
-                hostname,
-                utils::join_strings(self->origin_.get_nodes(), ", "));
+              CB_LOG_INFO("Replace list of bootstrap nodes with addresses from DNS SRV of "
+                          "\"{hostname}\": [{nodes}]",
+                          opentelemetry::common::MakeAttributes({
+                            { "id", self->id_ },
+                            { "hostname", hostname },
+                            { "nodes", utils::join_strings(self->origin_.get_nodes(), ", ") },
+                          }));
             }
             return self->do_background_open();
           });
@@ -1006,9 +1116,11 @@ public:
                                   const cluster_options& options) mutable {
         if (ec) {
           auto backoff = std::chrono::milliseconds(500);
-          CB_LOG_DEBUG("[{}] Waiting for {}ms before retrying to create cluster sessions.",
-                       self->id_,
-                       backoff.count());
+          CB_LOG_DEBUG("Waiting for {backoff_timeout} before retrying to create cluster sessions.",
+                       opentelemetry::common::MakeAttributes({
+                         { "id", self->id_ },
+                         { "backoff_timeout", fmt::format("{}", backoff) },
+                       }));
           self->backoff_then_retry(backoff, [self]() {
             self->create_cluster_sessions();
           });
@@ -1034,18 +1146,19 @@ public:
     if (auto bucket = find_bucket_by_name(bucket_name); bucket != nullptr) {
       return bucket->with_configuration(std::move(handler));
     }
-    return open_bucket(
-      bucket_name,
-      [self = shared_from_this(), bucket_name, handler = std::move(handler)](auto ec) mutable {
-        if (ec) {
-          return handler(ec, nullptr);
-        }
+    return open_bucket(bucket_name,
+                       [self = shared_from_this(), bucket_name, handler = std::move(handler)](
+                         auto ec) mutable -> auto {
+                         if (ec) {
+                           return handler(ec, nullptr);
+                         }
 
-        if (auto bucket = self->find_bucket_by_name(bucket_name); bucket != nullptr) {
-          return bucket->with_configuration(std::move(handler));
-        }
-        return handler(errc::common::bucket_not_found, nullptr);
-      });
+                         if (auto bucket = self->find_bucket_by_name(bucket_name);
+                             bucket != nullptr) {
+                           return bucket->with_configuration(std::move(handler));
+                         }
+                         return handler(errc::common::bucket_not_found, nullptr);
+                       });
   }
 
   void ping(std::optional<std::string> report_id,
@@ -1074,7 +1187,7 @@ public:
        bucket_name,
        services,
        timeout,
-       handler = std::move(handler)]() mutable {
+       handler = std::move(handler)]() mutable -> void {
         auto collector =
           std::make_shared<ping_collector_impl>(report_id.value(), std::move(handler));
         if (bucket_name) {
@@ -1083,7 +1196,8 @@ public:
               return bucket->ping(collector, timeout);
             }
             cluster->open_bucket(
-              bucket_name.value(), [collector, cluster, bucket_name, timeout](std::error_code ec) {
+              bucket_name.value(),
+              [collector, cluster, bucket_name, timeout](std::error_code ec) -> void {
                 if (!ec) {
                   if (auto bucket = cluster->find_bucket_by_name(bucket_name.value()); bucket) {
                     return bucket->ping(collector, timeout);
@@ -1096,7 +1210,7 @@ public:
             if (cluster->session_) {
               cluster->session_->ping(collector->build_reporter(), timeout);
             }
-            cluster->for_each_bucket([&collector, &timeout](const auto& bucket) {
+            cluster->for_each_bucket([&collector, &timeout](const auto& bucket) -> auto {
               bucket->ping(collector, timeout);
             });
           }
@@ -1116,12 +1230,12 @@ public:
       return handler({ report_id.value(), couchbase::core::meta::sdk_id() });
     }
     asio::post(asio::bind_executor(
-      ctx_, [self = shared_from_this(), report_id, handler = std::move(handler)]() mutable {
+      ctx_, [self = shared_from_this(), report_id, handler = std::move(handler)]() mutable -> void {
         diag::diagnostics_result res{ report_id.value(), couchbase::core::meta::sdk_id() };
         if (self->session_) {
           res.services[service_type::key_value].emplace_back(self->session_->diag_info());
         }
-        self->for_each_bucket([&res](const auto& bucket) {
+        self->for_each_bucket([&res](const auto& bucket) -> auto {
           bucket->export_diag_info(res);
         });
         self->session_manager_->export_diag_info(res);
@@ -1136,7 +1250,7 @@ public:
     }
     stopped_ = true;
     asio::post(asio::bind_executor(
-      ctx_, [self = shared_from_this(), handler = std::move(handler)]() mutable {
+      ctx_, [self = shared_from_this(), handler = std::move(handler)]() mutable -> void {
         if (auto session = std::move(self->session_); session) {
           session->stop(retry_reason::do_not_retry);
         }
@@ -1193,14 +1307,14 @@ public:
       return bucket->direct_dispatch(std::move(req));
     }
 
-    open_bucket(
-      bucket_name,
-      [self = shared_from_this(), req = std::move(req), bucket_name](std::error_code ec) mutable {
-        if (ec) {
-          return req->cancel(ec);
-        }
-        self->direct_dispatch(bucket_name, std::move(req));
-      });
+    open_bucket(bucket_name,
+                [self = shared_from_this(), req = std::move(req), bucket_name](
+                  std::error_code ec) mutable -> void {
+                  if (ec) {
+                    return req->cancel(ec);
+                  }
+                  self->direct_dispatch(bucket_name, std::move(req));
+                });
     return {};
   }
 
@@ -1220,7 +1334,7 @@ public:
 
     open_bucket(bucket_name,
                 [self = shared_from_this(), bucket_name, req = std::move(req), is_retry](
-                  std::error_code ec) mutable {
+                  std::error_code ec) mutable -> void {
                   if (ec) {
                     return req->cancel(ec);
                   }
@@ -1468,15 +1582,15 @@ cluster::execute(
   utils::movable_function<void(operations::get_all_replicas_response)>&& handler) const
 {
   auto bucket_name = request.id.bucket();
-  return open_bucket(
-    bucket_name,
-    [impl = impl_, request = std::move(request), handler = std::move(handler)](auto ec) mutable {
-      if (ec) {
-        return handler(
-          operations::get_all_replicas_response{ make_key_value_error_context(ec, request.id) });
-      }
-      return request.execute(impl, std::move(handler));
-    });
+  return open_bucket(bucket_name,
+                     [impl = impl_, request = std::move(request), handler = std::move(handler)](
+                       auto ec) mutable -> auto {
+                       if (ec) {
+                         return handler(operations::get_all_replicas_response{
+                           make_key_value_error_context(ec, request.id) });
+                       }
+                       return request.execute(impl, std::move(handler));
+                     });
 }
 
 void
@@ -1499,15 +1613,15 @@ cluster::execute(
   utils::movable_function<void(operations::get_any_replica_response)>&& handler) const
 {
   auto bucket_name = request.id.bucket();
-  return open_bucket(
-    bucket_name,
-    [impl = impl_, request = std::move(request), handler = std::move(handler)](auto ec) mutable {
-      if (ec) {
-        return handler(
-          operations::get_any_replica_response{ make_key_value_error_context(ec, request.id) });
-      }
-      return request.execute(impl, std::move(handler));
-    });
+  return open_bucket(bucket_name,
+                     [impl = impl_, request = std::move(request), handler = std::move(handler)](
+                       auto ec) mutable -> auto {
+                       if (ec) {
+                         return handler(operations::get_any_replica_response{
+                           make_key_value_error_context(ec, request.id) });
+                       }
+                       return request.execute(impl, std::move(handler));
+                     });
 }
 
 void

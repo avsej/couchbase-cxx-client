@@ -18,10 +18,12 @@
 #include <couchbase/build_config.hxx>
 
 #include "connection_string.hxx"
-#include "core/logger/logger.hxx"
 #include "core/meta/version.hxx"
 #include "duration_parser.hxx"
+#include "observability/logger.hxx"
 #include "url_codec.hxx"
+
+#include <spdlog/fmt/bundled/core.h>
 
 #include <tao/pegtl.hpp>
 #include <tao/pegtl/contrib/uri.hpp>

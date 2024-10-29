@@ -29,39 +29,39 @@ struct document_id {
   document_id(std::string bucket, std::string key);
   document_id(std::string bucket, std::string scope, std::string collection, std::string key);
 
-  [[nodiscard]] const std::string& bucket() const
+  [[nodiscard]] auto bucket() const -> const std::string&
   {
     return bucket_;
   }
 
-  [[nodiscard]] const std::string& scope() const
+  [[nodiscard]] auto scope() const -> const std::string&
   {
     return scope_;
   }
 
-  [[nodiscard]] const std::string& collection() const
+  [[nodiscard]] auto collection() const -> const std::string&
   {
     return collection_;
   }
 
-  [[nodiscard]] const std::string& collection_path() const
+  [[nodiscard]] auto collection_path() const -> const std::string&
   {
     return collection_path_;
   }
 
-  [[nodiscard]] const std::string& key() const
+  [[nodiscard]] auto key() const -> const std::string&
   {
     return key_;
   }
 
-  [[nodiscard]] bool has_default_collection() const;
+  [[nodiscard]] auto has_default_collection() const -> bool;
 
-  [[nodiscard]] bool is_collection_resolved() const
+  [[nodiscard]] auto is_collection_resolved() const -> bool
   {
     return collection_uid_.has_value();
   }
 
-  [[nodiscard]] std::uint32_t collection_uid() const
+  [[nodiscard]] auto collection_uid() const -> std::uint32_t
   {
     return collection_uid_.value();
   }
@@ -71,7 +71,7 @@ struct document_id {
     collection_uid_ = value;
   }
 
-  [[nodiscard]] bool use_collections() const
+  [[nodiscard]] auto use_collections() const -> bool
   {
     return use_collections_;
   }
@@ -81,7 +81,7 @@ struct document_id {
     use_collections_ = value;
   }
 
-  [[nodiscard]] bool use_any_session() const
+  [[nodiscard]] auto use_any_session() const -> bool
   {
     return use_any_session_;
   }
@@ -91,7 +91,7 @@ struct document_id {
     use_any_session_ = value;
   }
 
-  [[nodiscard]] std::size_t node_index() const
+  [[nodiscard]] auto node_index() const -> std::size_t
   {
     return node_index_;
   }
@@ -114,7 +114,7 @@ private:
   std::size_t node_index_{ 0 };
 };
 
-[[nodiscard]] std::vector<std::byte>
-make_protocol_key(const document_id& id);
+[[nodiscard]] auto
+make_protocol_key(const document_id& id) -> std::vector<std::byte>;
 
 } // namespace couchbase::core

@@ -99,6 +99,8 @@ struct program_arguments {
         arguments.transaction_timeout = std::chrono::seconds{ int_val };
       }
     }
+    // NOLINTEND(concurrency-mt-unsafe)
+
     return arguments;
   }
 
@@ -186,7 +188,7 @@ run_workload(const std::shared_ptr<couchbase::transactions::transactions>& trans
     for (std::size_t i = 0; i < arguments.number_of_transactions; ++i) {
       transactions->run(
         [&collection, &document_ids, &arguments, &errors](
-          std::shared_ptr<couchbase::transactions::async_attempt_context> attempt)
+          const std::shared_ptr<couchbase::transactions::async_attempt_context>& attempt)
           -> couchbase::error {
           std::vector<std::string> selected_keys;
           std::sample(document_ids.begin(),
@@ -197,12 +199,14 @@ run_workload(const std::shared_ptr<couchbase::transactions::transactions>& trans
 
           for (const auto& id : selected_keys) {
             attempt->get(
-              collection, id, [attempt, &collection, id, &arguments, &errors](auto ctx, auto res) {
+              collection,
+              id,
+              [attempt, &collection, id, &arguments, &errors](const auto& ctx, auto res) {
                 if (ctx.ec() == couchbase::errc::transaction_op::document_not_found) {
                   attempt->insert(collection,
                                   id,
                                   generate_document(arguments.document_body_size),
-                                  [&errors](auto ctx, auto) {
+                                  [&errors](const auto& ctx, const auto& /* res */) {
                                     if (ctx.ec()) {
                                       errors[ctx.ec().message()]++;
                                     }
@@ -210,9 +214,9 @@ run_workload(const std::shared_ptr<couchbase::transactions::transactions>& trans
                 } else if (ctx.ec()) {
                   errors[ctx.ec().message()]++;
                 } else {
-                  attempt->replace(res,
+                  attempt->replace(std::move(res),
                                    generate_document(arguments.document_body_size),
-                                   [&errors](auto ctx, auto) {
+                                   [&errors](const auto& ctx, const auto& /* res */) {
                                      if (ctx.ec()) {
                                        errors[ctx.ec().message()]++;
                                      }
@@ -223,7 +227,7 @@ run_workload(const std::shared_ptr<couchbase::transactions::transactions>& trans
           return {};
         },
         [&promise = results[i]](auto err, auto result) {
-          promise.set_value({ err, result });
+          promise.set_value({ std::move(err), std::move(result) });
         });
     }
 

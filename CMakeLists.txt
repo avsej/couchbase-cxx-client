@@ -478,6 +478,8 @@ if(NOT couchbase_cxx_client_DEFAULT_LIBRARY)
 have to be selected")
 endif()
 
+add_subdirectory(observability)
+
 foreach(TARGET ${couchbase_cxx_client_LIBRARIES})
   include(cmake/DetectStandardFilesystem.cmake)
   couchbase_cxx_check_filesystem(
@@ -526,6 +528,11 @@ foreach(TARGET ${couchbase_cxx_client_LIBRARIES})
   if(HAVE_BACKTRACE)
     target_link_libraries(${TARGET} PRIVATE ${PLATFORM_LIBRARIES})
   endif()
+
+  target_link_libraries(
+    ${TARGET}
+    PUBLIC couchbase_observability)
+
   if(WIN32)
     target_link_libraries(${TARGET} PRIVATE iphlpapi)
   endif()

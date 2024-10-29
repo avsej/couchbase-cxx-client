@@ -17,16 +17,17 @@
 
 #include "config_tracker.hxx"
 
+#include <asio/bind_executor.hpp>
+#include <asio/post.hpp>
 #include <couchbase/build_config.hxx>
 
 #include "core/impl/bootstrap_state_listener.hxx"
-#include "core/logger/logger.hxx"
 #include "core/origin.hxx"
 #include "core/protocol/client_request.hxx"
 #include "core/protocol/cmd_get_cluster_config.hxx"
 #include "core/utils/join_strings.hxx"
-#include "http_session_manager.hxx"
 #include "mcbp_session.hxx"
+#include "observability/logger.hxx"
 
 #include <asio/steady_timer.hpp>
 #include <spdlog/fmt/bundled/chrono.h>
@@ -105,33 +106,40 @@ public:
     new_session.add_background_bootstrap_listener(shared_from_this());
 #endif
     new_session.bootstrap([self = shared_from_this(), new_session, h = std::move(handler)](
-                            std::error_code ec, const topology::configuration& cfg) mutable {
+                            std::error_code ec,
+                            const topology::configuration& cfg) mutable -> void {
       if (!ec) {
         if (self->origin_.options().network == "auto") {
           self->origin_.options().network = cfg.select_network(new_session.bootstrap_hostname());
           if (self->origin_.options().network == "default") {
-            CB_LOG_DEBUG(R"({} detected network is "{}")",
-                         new_session.log_prefix(),
-                         self->origin_.options().network);
+            CB_LOG_DEBUG(R"(detected network is "{network}")",
+                         opentelemetry::common::MakeAttributes({
+                           { "session_id", new_session.log_prefix() },
+                           { "network", self->origin_.options().network },
+                         }));
           } else {
-            CB_LOG_INFO(R"({} detected network is "{}")",
-                        new_session.log_prefix(),
-                        self->origin_.options().network);
+            CB_LOG_INFO(R"(detected network is "{network}")",
+                        opentelemetry::common::MakeAttributes({
+                          { "session_id", new_session.log_prefix() },
+                          { "network", self->origin_.options().network },
+                        }));
           }
         }
         if (self->origin_.options().network != "default") {
           self->origin_.set_nodes_from_config(cfg);
-          CB_LOG_INFO(
-            "replace list of bootstrap nodes with addresses of alternative network \"{}\": [{}]",
-            self->origin_.options().network,
-            utils::join_strings(self->origin_.get_nodes(), ","));
+          CB_LOG_INFO("replace list of bootstrap nodes with addresses of alternative network "
+                      "\"{network}\": [{nodes}]",
+                      opentelemetry::common::MakeAttributes({
+                        { "network", self->origin_.options().network },
+                        { "nodes", utils::join_strings(self->origin_.get_nodes(), ",") },
+                      }));
         }
 
         new_session.on_configuration_update(self);
 #ifdef COUCHBASE_CXX_CLIENT_COLUMNAR
         self->notify_bootstrap_success(new_session.id());
 #endif
-        new_session.on_stop([id = new_session.id(), self]() {
+        new_session.on_stop([id = new_session.id(), self]() -> void {
           self->remove_session(id);
         });
         {
@@ -142,9 +150,11 @@ public:
         self->poll_config({});
       } else {
         // don't need to stop the session as if we hit this point the session will stop itself
-        CB_LOG_WARNING(R"({} failed to bootstrap cluster session ec={}")",
-                       new_session.log_prefix(),
-                       ec.message());
+        CB_LOG_WARNING("failed to bootstrap cluster session",
+                       opentelemetry::common::MakeAttributes({
+                         { "session_id", new_session.log_prefix() },
+                         { "error_message", ec.message() },
+                       }));
 #ifdef COUCHBASE_CXX_CLIENT_COLUMNAR
         if (new_session.last_bootstrap_error().has_value()) {
           self->notify_bootstrap_error(std::move(new_session).last_bootstrap_error().value());
@@ -286,9 +296,12 @@ private:
       const std::scoped_lock lock(sessions_mutex_);
 
       if (sessions_.empty()) {
-        CB_LOG_DEBUG(R"({} unable to find connected session (sessions_ is empty), retry in {})",
-                     log_prefix_,
-                     heartbeat_interval_);
+        CB_LOG_DEBUG(
+          "unable to find connected session (sessions_ is empty), retry in {heartbeat_interval}",
+          opentelemetry::common::MakeAttributes({
+            { "session_id", log_prefix_ },
+            { "heartbeat_interval", fmt::format("{}", heartbeat_interval_) },
+          }));
         return;
       }
 
@@ -307,9 +320,12 @@ private:
       req.opaque(session->next_opaque());
       session->write_and_flush(req.data());
     } else {
-      CB_LOG_DEBUG(R"({} unable to find connected session with GCCCP support, retry in {})",
-                   log_prefix_,
-                   heartbeat_interval_);
+      CB_LOG_DEBUG(
+        "unable to find connected session with GCCCP support, retry in {heartbeat_interval}",
+        opentelemetry::common::MakeAttributes({
+          { "session_id", log_prefix_ },
+          { "heartbeat_interval", fmt::format("{}", heartbeat_interval_) },
+        }));
     }
   }
 
@@ -326,7 +342,7 @@ private:
     fetch_config();
 
     heartbeat_timer_.expires_after(heartbeat_interval_);
-    return heartbeat_timer_.async_wait([self = shared_from_this()](std::error_code e) {
+    return heartbeat_timer_.async_wait([self = shared_from_this()](std::error_code e) -> void {
       if (e == asio::error::operation_aborted) {
         return;
       }
@@ -337,15 +353,25 @@ private:
   auto should_update_config(const topology::configuration& config) -> bool
   {
     if (!config_) {
-      CB_LOG_DEBUG("{} initialize configuration rev={}", log_prefix_, config.rev_str());
+      CB_LOG_DEBUG("initialize configuration",
+                   opentelemetry::common::MakeAttributes({
+                     { "session_id", log_prefix_ },
+                     { "rev", config.rev_str() },
+                   }));
     } else {
       if (config.force) {
-        CB_LOG_DEBUG("{} forced to accept configuration rev={}", log_prefix_, config.rev_str());
+        CB_LOG_DEBUG("forced to accept configuration",
+                     opentelemetry::common::MakeAttributes({
+                       { "session_id", log_prefix_ },
+                       { "rev", config.rev_str() },
+                     }));
       } else if (config_ < config) {
-        CB_LOG_DEBUG("{} will update the configuration old={} -> new={}",
-                     log_prefix_,
-                     config_->rev_str(),
-                     config.rev_str());
+        CB_LOG_DEBUG("will update the configuration",
+                     opentelemetry::common::MakeAttributes({
+                       { "session_id", log_prefix_ },
+                       { "old_rev", config_->rev_str() },
+                       { "new_rev", config.rev_str() },
+                     }));
       } else {
         return false;
       }
@@ -368,19 +394,23 @@ private:
 
       bool reused_session{ false };
       for (auto it = sessions_.begin(); it != sessions_.end(); ++it) {
-        CB_LOG_DEBUG(R"({} rev={}, checking cluster session="{}", address="{}:{}")",
-                     log_prefix_,
-                     config.rev_str(),
-                     it->id(),
-                     it->bootstrap_hostname(),
-                     it->bootstrap_port());
+        CB_LOG_DEBUG("checking cluster",
+                     opentelemetry::common::MakeAttributes({
+                       { "session_id", log_prefix_ },
+                       { "rev", config.rev_str() },
+                       { "session", it->id() },
+                       { "bootstrap_address",
+                         fmt::format("{}:{}", it->bootstrap_hostname(), it->bootstrap_port()) },
+                     }));
         if (it->bootstrap_hostname() == hostname && it->bootstrap_port_number() == port) {
-          CB_LOG_DEBUG(R"({} rev={}, preserve cluster session="{}", address="{}:{}")",
-                       log_prefix_,
-                       config.rev_str(),
-                       it->id(),
-                       it->bootstrap_hostname(),
-                       it->bootstrap_port());
+          CB_LOG_DEBUG("preserve cluster",
+                       opentelemetry::common::MakeAttributes({
+                         { "session_id", log_prefix_ },
+                         { "rev", config.rev_str() },
+                         { "session", it->id() },
+                         { "bootstrap_address",
+                           fmt::format("{}:{}", it->bootstrap_hostname(), it->bootstrap_port()) },
+                       }));
           new_sessions.emplace_back(std::move(*it));
           reused_session = true;
           sessions_.erase(it);
@@ -397,29 +427,34 @@ private:
         origin_.options().enable_tls
           ? io::mcbp_session(client_id_, node.node_uuid, ctx_, tls_, origin, state_listener_)
           : io::mcbp_session(client_id_, node.node_uuid, ctx_, origin, state_listener_);
-      CB_LOG_DEBUG(R"({} rev={}, add cluster session="{}", address="{}:{}")",
-                   log_prefix_,
-                   config.rev_str(),
-                   session.id(),
-                   hostname,
-                   port);
+      CB_LOG_DEBUG("add cluster",
+                   opentelemetry::common::MakeAttributes({
+                     { "session_id", log_prefix_ },
+                     { "rev", config.rev_str() },
+                     { "session", session.id() },
+                     { "address", fmt::format("{}:{}", hostname, port) },
+                   }));
 #ifdef COUCHBASE_CXX_CLIENT_COLUMNAR
       session.add_background_bootstrap_listener(shared_from_this());
 #endif
-      session.bootstrap([self = shared_from_this(), session](std::error_code err,
-                                                             topology::configuration cfg) mutable {
+      session.bootstrap([self = shared_from_this(), session](
+                          std::error_code err, topology::configuration cfg) mutable -> void {
         if (err) {
-          CB_LOG_WARNING(R"({} failed to bootstrap cluster session="{}", address="{}:{}", ec={})",
-                         session.log_prefix(),
-                         session.id(),
-                         session.bootstrap_hostname(),
-                         session.bootstrap_port(),
-                         err.message());
+          CB_LOG_WARNING(
+            "failed to bootstrap cluster",
+            opentelemetry::common::MakeAttributes({
+              { "id", session.log_prefix() },
+              { "session_id", session.id() },
+              { "session", session.id() },
+              { "address",
+                fmt::format("{}:{}", session.bootstrap_hostname(), session.bootstrap_port()) },
+              { "error_message", err.message() },
+            }));
           return self->remove_session(session.id());
         }
         self->update_config(std::move(cfg));
         session.on_configuration_update(self);
-        session.on_stop([id = session.id(), self]() {
+        session.on_stop([id = session.id(), self]() -> void {
           self->remove_session(id);
         });
       });
@@ -428,13 +463,16 @@ private:
     std::swap(sessions_, new_sessions);
 
     for (auto it = new_sessions.begin(); it != new_sessions.end(); ++it) {
-      CB_LOG_DEBUG(R"({} rev={}, drop cluster session="{}", address="{}:{}")",
-                   log_prefix_,
-                   config.rev_str(),
-                   it->id(),
-                   it->bootstrap_hostname(),
-                   it->bootstrap_port());
-      asio::post(asio::bind_executor(ctx_, [session = std::move(*it)]() mutable {
+      CB_LOG_DEBUG(
+        "drop cluster",
+        opentelemetry::common::MakeAttributes({
+          { "id", log_prefix_ },
+          { "session_id", it->id() },
+          { "rev", config.rev_str() },
+          { "session", it->id() },
+          { "address", fmt::format("{}:{}", it->bootstrap_hostname(), it->bootstrap_port()) },
+        }));
+      asio::post(asio::bind_executor(ctx_, [session = std::move(*it)]() mutable -> void {
         return session.stop(retry_reason::do_not_retry);
       }));
     }
@@ -490,8 +528,8 @@ private:
         continue;
       }
 
-      auto ptr =
-        std::find_if(sessions_.begin(), sessions_.end(), [&hostname, &port](const auto& session) {
+      auto ptr = std::find_if(
+        sessions_.begin(), sessions_.end(), [&hostname, &port](const auto& session) -> auto {
           return session.bootstrap_hostname() == hostname &&
                  session.bootstrap_port_number() == port;
         });
@@ -513,14 +551,14 @@ private:
 #ifdef COUCHBASE_CXX_CLIENT_COLUMNAR
       session.add_background_bootstrap_listener(shared_from_this());
 #endif
-      session.bootstrap([self = shared_from_this(), session](std::error_code err,
-                                                             topology::configuration cfg) mutable {
+      session.bootstrap([self = shared_from_this(), session](
+                          std::error_code err, topology::configuration cfg) mutable -> void {
         if (err) {
           return self->remove_session(session.id());
         }
         self->update_config(std::move(cfg));
         session.on_configuration_update(self);
-        session.on_stop([id = session.id(), self]() {
+        session.on_stop([id = session.id(), self]() -> void {
           self->remove_session(id);
         });
       });
@@ -549,7 +587,7 @@ private:
     }
 
     if (found) {
-      asio::post(asio::bind_executor(ctx_, [self = shared_from_this()]() {
+      asio::post(asio::bind_executor(ctx_, [self = shared_from_this()]() -> void {
         return self->restart_sessions();
       }));
     }

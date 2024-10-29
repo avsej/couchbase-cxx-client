@@ -28,6 +28,7 @@
 #include "core/utils/movable_function.hxx"
 #include "http_session.hxx"
 #include "http_traits.hxx"
+#include "observability/logger.hxx"
 
 #include <couchbase/tracing/request_tracer.hxx>
 
@@ -112,20 +113,25 @@ struct http_command : public std::enable_shared_from_this<http_command<Request>>
       if (ec == asio::error::operation_aborted) {
         return;
       }
-      CB_LOG_DEBUG(R"(HTTP request timed out before dispatch: {}, client_context_id="{}")",
-                   self->request.type,
-                   self->client_context_id_);
+      CB_LOG_DEBUG("HTTP request timed out before dispatch: {request_type}",
+                   opentelemetry::common::MakeAttributes({
+                     { "request_type", fmt::format("{}", self->request.type) },
+                     { "client_context_id", self->client_context_id_ },
+                   }));
+
       self->cancel(errc::common::unambiguous_timeout);
     });
 #endif
     deadline.expires_after(timeout_);
-    deadline.async_wait([self = this->shared_from_this()](std::error_code ec) {
+    deadline.async_wait([self = this->shared_from_this()](std::error_code ec) -> auto {
       if (ec == asio::error::operation_aborted) {
         return;
       }
-      CB_LOG_DEBUG(R"(HTTP request timed out: {}, client_context_id="{}")",
-                   self->request.type,
-                   self->client_context_id_);
+      CB_LOG_DEBUG("HTTP request timed out: {request_type}",
+                   opentelemetry::common::MakeAttributes({
+                     { "request_type", fmt::format("{}", self->request.type) },
+                     { "client_context_id", self->client_context_id_ },
+                   }));
       if constexpr (io::http_traits::supports_readonly_v<Request>) {
         if (self->request.readonly) {
           self->cancel(errc::common::unambiguous_timeout);
@@ -174,10 +180,12 @@ struct http_command : public std::enable_shared_from_this<http_command<Request>>
         if (std::holds_alternative<impl::bootstrap_error>(error)) {
           auto bootstrap_error = std::get<impl::bootstrap_error>(error);
           if (bootstrap_error.ec == errc::common::unambiguous_timeout) {
-            CB_LOG_DEBUG("Timeout caused by bootstrap error. code={}, ec_message={}, message={}.",
-                         bootstrap_error.ec.value(),
-                         bootstrap_error.ec.message(),
-                         bootstrap_error.error_message);
+            CB_LOG_DEBUG("Timeout caused by bootstrap error",
+                         opentelemetry::common::MakeAttributes({
+                           { "code", bootstrap_error.ec.value() },
+                           { "ec_message", bootstrap_error.ec.message() },
+                           { "message", bootstrap_error.error_message },
+                         }));
           }
           ctx.ec = bootstrap_error.ec;
         } else {
@@ -252,14 +260,15 @@ private:
     }
     encoded.headers["client-context-id"] = client_context_id_;
 
-    CB_LOG_TRACE(
-      R"({} HTTP request: {}, method={}, path="{}", client_context_id="{}", timeout={}ms)",
-      session_->log_prefix(),
-      encoded.type,
-      encoded.method,
-      encoded.path,
-      client_context_id_,
-      timeout_.count());
+    CB_LOG_TRACE("HTTP request: {request_type}",
+                 opentelemetry::common::MakeAttributes({
+                   { "session_id", session_->log_prefix() },
+                   { "request_type", fmt::format("{}", encoded.type) },
+                   { "method", encoded.method },
+                   { "path", encoded.path },
+                   { "client_context_id", client_context_id_ },
+                   { "timeout", fmt::format("{}", timeout_) },
+                 }));
 
     auto dispatch_span = create_dispatch_span();
 
@@ -267,7 +276,8 @@ private:
       encoded,
       [self = this->shared_from_this(),
        dispatch_span = std::move(dispatch_span),
-       start = std::chrono::steady_clock::now()](std::error_code ec, io::http_response&& msg) {
+       start = std::chrono::steady_clock::now()](std::error_code ec,
+                                                 io::http_response&& msg) -> auto {
         if (ec == asio::error::operation_aborted) {
           dispatch_span->end();
           return self->invoke_handler(errc::common::ambiguous_timeout, std::move(msg));
@@ -292,13 +302,14 @@ private:
         }
 
         self->deadline.cancel();
-        CB_LOG_TRACE(R"({} HTTP response: {}, client_context_id="{}", ec={}, status={}, body={})",
-                     self->session_->log_prefix(),
-                     self->request.type,
-                     self->client_context_id_,
-                     ec.message(),
-                     msg.status_code,
-                     msg.status_code == 200 ? "[hidden]" : msg.body.data());
+        CB_LOG_TRACE("HTTP response: {request_type}",
+                     opentelemetry::common::MakeAttributes({
+                       { "session_id", self->session_->log_prefix() },
+                       { "request_type", fmt::format("{}", self->request.type) },
+                       { "client_context_id", self->client_context_id_ },
+                       { "status_code", msg.status_code },
+                       { "body", msg.status_code == 200 ? "[hidden]" : msg.body.data() },
+                     }));
         if (auto parser_ec = msg.body.ec(); !ec && parser_ec) {
           ec = parser_ec;
         }

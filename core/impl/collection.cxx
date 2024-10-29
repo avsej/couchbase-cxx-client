@@ -27,7 +27,6 @@
 #include "core/agent_group_config.hxx"
 #include "core/cluster.hxx"
 #include "core/impl/subdoc/command.hxx"
-#include "core/logger/logger.hxx"
 #include "core/operations/document_append.hxx"
 #include "core/operations/document_decrement.hxx"
 #include "core/operations/document_exists.hxx"
@@ -53,6 +52,7 @@
 #include "core/range_scan_orchestrator.hxx"
 #include "core/range_scan_orchestrator_options.hxx"
 #include "core/topology/configuration.hxx"
+#include "observability/logger.hxx"
 
 #include <couchbase/binary_collection.hxx>
 #include <couchbase/cas.hxx>
@@ -942,8 +942,11 @@ public:
                 {});
             }
             if (!config->vbmap.has_value() || config->vbmap->empty()) {
-              CB_LOG_WARNING("Unable to get vbucket map for `{}` - cannot perform scan operation",
-                             bucket_name_);
+              CB_LOG_WARNING(
+                "Unable to get vbucket map for `{bucket_name}` - cannot perform scan operation",
+                opentelemetry::common::MakeAttributes({
+                  { "bucket_name", bucket_name_ },
+                }));
               return handler(error(errc::common::request_canceled,
                                    "No vbucket map included with the bucket config"),
                              {});

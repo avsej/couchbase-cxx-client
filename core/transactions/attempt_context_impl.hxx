@@ -24,11 +24,11 @@
 #include "attempt_state.hxx"
 #include "internal/atr_cleanup_entry.hxx"
 #include "internal/exceptions_internal.hxx"
+#include "observability/logger.hxx"
 #include "transaction_get_multi_mode.hxx"
 #include "transaction_get_result.hxx"
 
 // TODO(SA): do not mix public and core APIs in the single class
-#include <chrono>
 #include <couchbase/codec/encoded_value.hxx>
 #include <couchbase/transactions/async_attempt_context.hxx>
 #include <couchbase/transactions/attempt_context.hxx>
@@ -40,6 +40,9 @@
 #include <couchbase/transactions/transaction_get_multi_spec.hxx>
 #include <couchbase/transactions/transaction_query_options.hxx>
 
+#include <spdlog/fmt/bundled/chrono.h>
+
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -272,10 +275,12 @@ private:
       existing_error();
       return func();
     } catch (const async_operation_conflict& e) {
-      CB_ATTEMPT_CTX_LOG_ERROR(this,
-                               "Attempted to perform txn operation after "
-                               "commit/rollback started: {}",
-                               e.what());
+      CB_LOG_ERROR("Attempted to perform txn operation after commit/rollback started",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", transaction_id() },
+                     { "attempt_id", id() },
+                     { "error_message", e.what() },
+                   }));
       // you cannot call op_completed_with_error, as it tries to decrement
       // the op count, however it didn't successfully increment it, so...
       auto err = transaction_operation_failed(FAIL_OTHER, "async operation conflict");

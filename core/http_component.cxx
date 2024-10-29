@@ -86,13 +86,15 @@ public:
       if (ec == asio::error::operation_aborted) {
         return;
       }
-      CB_LOG_DEBUG(
-        R"(HTTP request timed out (dispatch): {}, method={}, path="{}", dispatch_timeout={}, client_context_id={})",
-        self->encoded_.type,
-        self->encoded_.method,
-        self->encoded_.path,
-        self->dispatch_timeout_,
-        self->encoded_.client_context_id);
+      CB_LOG_DEBUG("HTTP request timed out (dispatch): {type}",
+                   opentelemetry::common::MakeAttributes({
+                     { "type", fmt::format("{}", self->encoded_.type) },
+                     { "method", self->encoded_.method },
+                     { "path", self->encoded_.path },
+                     { "timeout", fmt::format("{}", self->dispatch_timeout_) },
+                     { "client_context_id", self->encoded_.client_context_id },
+                   }));
+
       self->trigger_timeout();
       if (self->session_) {
         self->session_->stop();
@@ -100,17 +102,19 @@ public:
     });
 #endif
     deadline_.expires_after(request_.timeout);
-    deadline_.async_wait([self = shared_from_this()](auto ec) {
+    deadline_.async_wait([self = shared_from_this()](auto ec) -> auto {
       if (ec == asio::error::operation_aborted) {
         return;
       }
-      CB_LOG_DEBUG(
-        R"(HTTP request timed out: {}, method={}, path="{}", timeout={}, client_context_id={})",
-        self->encoded_.type,
-        self->encoded_.method,
-        self->encoded_.path,
-        self->request_.timeout,
-        self->encoded_.client_context_id);
+      CB_LOG_DEBUG("HTTP request timed out: {type}",
+                   opentelemetry::common::MakeAttributes({
+                     { "type", fmt::format("{}", self->encoded_.type) },
+                     { "method", self->encoded_.method },
+                     { "path", self->encoded_.path },
+                     { "timeout", fmt::format("{}", self->request_.timeout) },
+                     { "client_context_id", self->encoded_.client_context_id },
+                   }));
+
       self->trigger_timeout();
       if (self->session_) {
         self->session_->stop();
@@ -160,7 +164,7 @@ public:
 #endif
     session_ = std::move(session);
 
-    auto start_op = [self = shared_from_this()]() {
+    auto start_op = [self = shared_from_this()]() -> void {
       self->session_->write_and_stream(
         self->encoded_,
 #ifdef COUCHBASE_CXX_CLIENT_COLUMNAR
@@ -172,14 +176,14 @@ public:
           self->invoke_response_handler(err, std::move(resp));
         },
 #else
-        [self](std::error_code ec, io::http_streaming_response resp) {
+        [self](std::error_code ec, io::http_streaming_response resp) -> void {
           if (ec == asio::error::operation_aborted) {
             return;
           }
           self->invoke_response_handler(ec, std::move(resp));
         },
 #endif
-        [self]() {
+        [self]() -> void {
           self->stream_end_callback_();
         });
     };
@@ -286,13 +290,15 @@ public:
       if (ec == asio::error::operation_aborted) {
         return;
       }
-      CB_LOG_DEBUG(
-        R"(HTTP request timed out (dispatch): {}, method={}, path="{}", dispatch_timeout={}, client_context_id={})",
-        self->encoded_.type,
-        self->encoded_.method,
-        self->encoded_.path,
-        self->dispatch_timeout_,
-        self->encoded_.client_context_id);
+      CB_LOG_DEBUG("HTTP request timed out (dispatch): {type}",
+                   opentelemetry::common::MakeAttributes({
+                     { "type", fmt::format("{}", self->encoded_.type) },
+                     { "method", self->encoded_.method },
+                     { "path", self->encoded_.path },
+                     { "timeout", fmt::format("{}", self->timeout_) },
+                     { "client_context_id", self->encoded_.client_context_id },
+                   }));
+
       self->trigger_timeout();
       if (self->session_) {
         self->session_->stop();
@@ -300,17 +306,19 @@ public:
     });
 #endif
     deadline_.expires_after(request_.timeout);
-    deadline_.async_wait([self = shared_from_this()](auto ec) {
+    deadline_.async_wait([self = shared_from_this()](auto ec) -> auto {
       if (ec == asio::error::operation_aborted) {
         return;
       }
-      CB_LOG_DEBUG(
-        R"(HTTP request timed out: {}, method={}, path="{}", timeout={}, client_context_id={})",
-        self->encoded_.type,
-        self->encoded_.method,
-        self->encoded_.path,
-        self->request_.timeout,
-        self->encoded_.client_context_id);
+      CB_LOG_DEBUG("HTTP request timed out: {type}",
+                   opentelemetry::common::MakeAttributes({
+                     { "type", fmt::format("{}", self->encoded_.type) },
+                     { "method", self->encoded_.method },
+                     { "path", self->encoded_.path },
+                     { "timeout", fmt::format("{}", self->request_.timeout) },
+                     { "client_context_id", self->encoded_.client_context_id },
+                   }));
+
       self->trigger_timeout();
       if (self->session_) {
         self->session_->stop();
@@ -353,7 +361,7 @@ public:
     session_ = std::move(session);
 
     session_->write_and_subscribe(
-      encoded_, [self = shared_from_this()](std::error_code ec, io::http_response resp) {
+      encoded_, [self = shared_from_this()](std::error_code ec, io::http_response resp) -> void {
         if (ec == asio::error::operation_aborted) {
           return;
         }
@@ -535,7 +543,7 @@ private:
       return;
     }
 #else
-    op->start([callback = std::move(callback)](auto resp, auto ec) mutable {
+    op->start([callback = std::move(callback)](auto resp, auto ec) mutable -> auto {
       callback(std::move(resp), ec);
     });
 #endif
@@ -552,7 +560,7 @@ private:
       session = std::move(s);
     }
     op->set_stream_end_callback(
-      [session_manager, session, service = op->request().service]() mutable {
+      [session_manager, session, service = op->request().service]() mutable -> void {
         session_manager->check_in(service, session);
       });
     if (!session->is_connected()) {
@@ -563,7 +571,7 @@ private:
         op->dispatch_deadline_expiry(),
 #endif
         op->deadline_expiry(),
-        [op](std::error_code ec, std::shared_ptr<io::http_session> http_session) {
+        [op](std::error_code ec, std::shared_ptr<io::http_session> http_session) -> void {
           if (ec) {
             return op->invoke_response_handler(ec, {});
           }
@@ -593,7 +601,7 @@ private:
     }
     op->start(
       [callback = std::move(callback), session_manager, session, service = op->request().service](
-        auto resp, auto ec) mutable {
+        auto resp, auto ec) mutable -> auto {
         callback(std::move(resp), ec);
         session_manager->check_in(service, session);
       });
@@ -606,7 +614,7 @@ private:
         op->dispatch_deadline_expiry(),
 #endif
         op->deadline_expiry(),
-        [op](std::error_code ec, std::shared_ptr<io::http_session> http_session) {
+        [op](std::error_code ec, std::shared_ptr<io::http_session> http_session) -> void {
           if (ec) {
             return op->invoke_response_handler(ec, {});
           }
@@ -627,10 +635,12 @@ private:
     if (auto last_error = session_manager->last_bootstrap_error(); last_error.has_value()) {
       return last_error.value();
     }
-    CB_LOG_DEBUG(
-      R"(Adding pending HTTP operation to deferred queue: service={}, client_context_id={})",
-      pending_op->request().service,
-      pending_op->request().client_context_id);
+    CB_LOG_DEBUG("Adding pending HTTP operation to deferred queue",
+                 opentelemetry::common::MakeAttributes({
+                   { "service", pending_op->request().service },
+                   { "client_context_id", pending_op->request().client_context_id },
+                 }));
+
     session_manager->add_to_deferred_queue([this,
                                             callback = std::forward<Callback>(callback),
                                             op = std::move(pending_op),
@@ -656,10 +666,12 @@ private:
     if (auto last_error = session_manager->last_bootstrap_error(); last_error.has_value()) {
       return last_error.value();
     }
-    CB_LOG_DEBUG(
-      R"(Adding pending HTTP operation to deferred queue: service={}, client_context_id={})",
-      pending_op->request().service,
-      pending_op->request().client_context_id);
+    CB_LOG_DEBUG("Adding pending HTTP operation to deferred queue",
+                 opentelemetry::common::MakeAttributes({
+                   { "service", pending_op->request().service },
+                   { "client_context_id", pending_op->request().client_context_id },
+                 }));
+
     session_manager->add_to_deferred_queue([this,
                                             callback = std::move(callback),
                                             op = std::move(pending_op),

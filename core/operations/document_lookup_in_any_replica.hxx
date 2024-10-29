@@ -113,11 +113,12 @@ struct lookup_in_any_replica_request {
             auto nodes =
               impl::effective_nodes(id, config, read_preference, origin.options().server_group);
             if (nodes.empty()) {
-              CB_LOG_DEBUG(
-                "Unable to retrieve replicas for \"{}\", server_group={}, number_of_replicas={}",
-                id,
-                origin.options().server_group,
-                config->num_replicas.value_or(0));
+              CB_LOG_DEBUG("Unable to retrieve replicas for \"{document_id}\"",
+                           opentelemetry::common::MakeAttributes({
+                             { "document_id", fmt::format("{}", id) },
+                             { "server_group", origin.options().server_group },
+                             { "number_of_replicas", config->num_replicas.value_or(0) },
+                           }));
               ec = errc::key_value::document_irretrievable;
             }
 

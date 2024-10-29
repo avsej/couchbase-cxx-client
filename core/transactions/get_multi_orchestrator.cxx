@@ -198,7 +198,7 @@ contains_mutation(const std::optional<std::vector<doc_record>>& mutated_ids,
   if (!mutated_ids) {
     return false;
   }
-  return std::any_of(mutated_ids->begin(), mutated_ids->end(), [&id](const auto& mutation) {
+  return std::any_of(mutated_ids->begin(), mutated_ids->end(), [&id](const auto& mutation) -> auto {
     return mutation == id;
   });
 }
@@ -340,8 +340,8 @@ public:
     active_transaction_record::get_atr(
       attempt_->cluster_ref(),
       atr_document_id,
-      [other_attempt_id, self = shared_from_this()](std::error_code ec,
-                                                    std::optional<active_transaction_record> atr) {
+      [other_attempt_id, self = shared_from_this()](
+        std::error_code ec, std::optional<active_transaction_record> atr) -> void {
         if (ec) {
           return self->reset_and_retry();
         }
@@ -459,8 +459,9 @@ public:
 
   void fetch_individual_document(const get_multi_spec& spec)
   {
-    auto handler = [spec, self = shared_from_this()](const std::exception_ptr& error,
-                                                     std::optional<transaction_get_result> res) {
+    auto handler = [spec,
+                    self = shared_from_this()](const std::exception_ptr& error,
+                                               std::optional<transaction_get_result> res) -> void {
       if (res) {
         auto forward_compat_err =
           check_forward_compat(forward_compat_stage::GET_MULTI_GET, res->links().forward_compat());
@@ -550,7 +551,7 @@ get_multi_orchestrator::get_multi(
     get_multi_operation::default_number_of_concurrent_requests,
     false,
     [cb = std::move(cb), self = shared_from_this()](std::exception_ptr error,
-                                                    std::vector<get_multi_result> results) {
+                                                    std::vector<get_multi_result> results) -> void {
       if (error) {
         return cb(std::move(error), {});
       }
@@ -588,7 +589,7 @@ get_multi_orchestrator::get_multi_replicas_from_preferred_server_group(
     get_multi_operation::default_number_of_concurrent_requests,
     true,
     [cb = std::move(cb), self = shared_from_this()](std::exception_ptr error,
-                                                    std::vector<get_multi_result> results) {
+                                                    std::vector<get_multi_result> results) -> void {
       if (error) {
         return cb(std::move(error), {});
       }

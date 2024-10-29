@@ -154,7 +154,7 @@ public:
     auto f = barrier->get_future();
     transactions_->run(
       [this, damage, collection, player_id, monster_id, &exists](
-        std::shared_ptr<async_attempt_context> ctx) -> couchbase::error {
+        const std::shared_ptr<async_attempt_context>& ctx) -> couchbase::error {
         ctx->get(
           collection,
           monster_id,
@@ -174,7 +174,7 @@ public:
             if (monster_new_hitpoints <= 0) {
               // Monster is killed. The remove is just for demoing, and a more realistic examples
               // would set a "dead" flag or similar.
-              ctx->remove(monster, [](auto e) {
+              ctx->remove(monster, [](const auto& e) {
                 if (e.ec()) {
                   std::cout << "error removing monster: " << e.ec().message() << "\n";
                 }

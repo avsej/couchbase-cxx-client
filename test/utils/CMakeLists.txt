@@ -15,7 +15,7 @@ target_include_directories(
   test_utils SYSTEM BEFORE PRIVATE $<BUILD_INTERFACE:$<TARGET_PROPERTY:spdlog::spdlog,INTERFACE_INCLUDE_DIRECTORIES>>
                                    $<BUILD_INTERFACE:$<TARGET_PROPERTY:asio,INTERFACE_INCLUDE_DIRECTORIES>>)
 propagate_public_compile_definitions(test_utils spdlog::spdlog asio)
-target_link_libraries(test_utils PRIVATE Microsoft.GSL::GSL taocpp::json)
+target_link_libraries(test_utils PRIVATE Microsoft.GSL::GSL taocpp::json couchbase_observability)
 target_include_directories(test_utils PRIVATE ${PROJECT_SOURCE_DIR} ${PROJECT_BINARY_DIR}/generated)
 
 if(COUCHBASE_CXX_CLIENT_STATIC_BORINGSSL)

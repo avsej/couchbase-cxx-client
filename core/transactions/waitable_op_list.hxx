@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include "internal/logging.hxx"
+#include "observability/logger.hxx"
 
 #include <condition_variable>
 #include <mutex>
@@ -27,25 +27,24 @@ namespace couchbase::core::transactions
 class async_operation_conflict : public std::runtime_error
 {
 public:
-  async_operation_conflict(const std::string& msg)
+  explicit async_operation_conflict(const std::string& msg)
     : std::runtime_error(msg)
   {
   }
 };
+
 struct attempt_mode {
-  enum class modes {
+  enum class modes : std::uint8_t {
     KV,
     QUERY
   };
-  modes mode;
+
+  modes mode{};
   std::string query_node;
 
-  attempt_mode()
-    : mode(modes::KV)
-  {
-  }
+  attempt_mode() = default;
 
-  auto is_query() -> bool
+  [[nodiscard]] auto is_query() const -> bool
   {
     return mode == modes::QUERY;
   }
@@ -54,13 +53,7 @@ struct attempt_mode {
 class waitable_op_list
 {
 public:
-  waitable_op_list()
-    : count_(0)
-    , allow_ops_(true)
-    , mode_()
-    , in_flight_(0)
-  {
-  }
+  waitable_op_list() = default;
 
   void increment_ops()
   {
@@ -73,7 +66,7 @@ public:
   void wait_and_block_ops()
   {
     std::unique_lock<std::mutex> lock(mutex_);
-    cv_ops_.wait(lock, [this]() {
+    cv_ops_.wait(lock, [this]() -> bool {
       return (0 == count_);
     });
     // we have the lock.  Block all further ops
@@ -90,7 +83,7 @@ public:
     }
     // Another op has set the query_mode_, and hasn't set the
     // query_node_ yet.   So we wait.
-    cv_query_.wait(lock, [this]() {
+    cv_query_.wait(lock, [this]() -> bool {
       return !mode_.query_node.empty();
     });
     return mode_;
@@ -105,14 +98,14 @@ public:
     in_flight_--;
     if (mode_.mode == attempt_mode::modes::KV) {
       // wait until all in_flight ops are done
-      CB_TXN_LOG_TRACE("set_query_mode: waiting for in_flight ops to go to 0...");
-      cv_in_flight_.wait(lock, [this]() {
+      CB_LOG_TRACE("set_query_mode: waiting for in_flight ops to go to 0...");
+      cv_in_flight_.wait(lock, [this]() -> auto {
         return (0 == in_flight_);
       });
       // ok, now no outstanding ops(apart from the query that called this), and I have the lock,
       // so...
       if (mode_.mode == attempt_mode::modes::KV) {
-        CB_TXN_LOG_TRACE("set_query_mode: in_flight ops = 0, we were kv, setting mode to query");
+        CB_LOG_TRACE("set_query_mode: in_flight ops = 0, we were kv, setting mode to query");
         // still kv, so now (while blocking) set the mode
         mode_.mode = attempt_mode::modes::QUERY;
         // ok to unlock now, as any racing set_query_mode will wait for
@@ -127,15 +120,15 @@ public:
     }
     // you make it here, and someone else is currently setting the node (a byproduct of
     // calling the callback).  So wait for that.
-    CB_TXN_LOG_TRACE("set_query_mode: mode already query, waiting for node to be set...");
-    cv_query_.wait(lock, [this]() {
+    CB_LOG_TRACE("set_query_mode: mode already query, waiting for node to be set...");
+    cv_query_.wait(lock, [this]() -> auto {
       return !mode_.query_node.empty();
     });
-    cv_in_flight_.wait(lock, [this]() {
+    cv_in_flight_.wait(lock, [this]() -> auto {
       return 0 == in_flight_;
     });
     in_flight_++;
-    CB_TXN_LOG_TRACE("set_query_mode: node set, continuing...");
+    CB_LOG_TRACE("set_query_mode: node set, continuing...");
     lock.unlock();
     cb();
   }
@@ -160,7 +153,10 @@ public:
   {
     std::lock_guard<std::mutex> lock(mutex_);
     in_flight_--;
-    CB_TXN_LOG_TRACE("in_flight decremented to {}", in_flight_);
+    CB_LOG_TRACE("in_flight decremented to {value}",
+                 opentelemetry::common::MakeAttributes({
+                   { "value", in_flight_ },
+                 }));
     assert(in_flight_ >= 0);
     if (0 == in_flight_) {
       cv_in_flight_.notify_all();
@@ -176,7 +172,12 @@ private:
       if (val > 0) {
         in_flight_ += val;
       }
-      CB_TXN_LOG_TRACE("op count changed by {} to {}, {} in_flight", val, count_, in_flight_);
+      CB_LOG_TRACE("op count changed by {delta} to {count}, {value} in_flight",
+                   opentelemetry::common::MakeAttributes({
+                     { "delta", val },
+                     { "count", count_ },
+                     { "value", in_flight_ },
+                   }));
       assert(count_ >= 0);
       assert(in_flight_ >= 0);
       if (0 == count_) {
@@ -186,16 +187,15 @@ private:
         cv_in_flight_.notify_all();
       }
     } else {
-      CB_TXN_LOG_ERROR("operation attempted after commit/rollback");
+      CB_LOG_ERROR("operation attempted after commit/rollback");
       throw async_operation_conflict("Operation attempted after commit or rollback");
     }
   }
 
-private:
-  int32_t count_;
-  bool allow_ops_;
-  attempt_mode mode_;
-  int32_t in_flight_;
+  std::int32_t count_{};
+  bool allow_ops_{};
+  attempt_mode mode_{};
+  std::int32_t in_flight_{};
   std::condition_variable cv_ops_;
   std::condition_variable cv_query_;
   std::condition_variable cv_in_flight_;

@@ -21,13 +21,13 @@
 #include "attempt_context_testing_hooks.hxx"
 #include "attempt_state.hxx"
 #include "core/cluster.hxx"
+#include "core/document_id_fmt.hxx"
 #include "core/error_context/transaction_error_context.hxx"
 #include "core/error_context/transaction_op_error_context.hxx"
 #include "core/impl/error.hxx"
 #include "core/operations.hxx"
 #include "core/transactions/error_class.hxx"
 #include "core/transactions/transaction_get_multi_mode.hxx"
-#include "couchbase/error_codes.hxx"
 #include "durability_level.hxx"
 #include "exceptions.hxx"
 #include "exceptions_fmt.hxx"
@@ -35,12 +35,14 @@
 #include "get_multi_orchestrator.hxx"
 #include "internal/exceptions_internal.hxx"
 #include "internal/exceptions_internal_fmt.hxx"
-#include "internal/logging.hxx"
 #include "internal/transaction_attempt.hxx"
 #include "internal/transaction_context.hxx"
 #include "internal/transactions_cleanup.hxx"
 #include "internal/utils.hxx"
+#include "observability/logger.hxx"
 #include "staged_mutation.hxx"
+
+#include <couchbase/error_codes.hxx>
 
 #include <optional>
 
@@ -151,11 +153,14 @@ attempt_context_impl::attempt_context_impl(
 {
   // put a new transaction_attempt in the context...
   overall()->add_attempt();
-  CB_ATTEMPT_CTX_LOG_TRACE(
-    this,
-    "added new attempt, state {}, expiration in {}ms",
-    attempt_state_name(state()),
-    std::chrono::duration_cast<std::chrono::milliseconds>(overall()->remaining()).count());
+
+  CB_LOG_TRACE("added new attempt, state {state}, expiration in {expiration}",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", this->transaction_id() },
+                 { "attempt_id", this->id() },
+                 { "state", attempt_state_name(state()) },
+                 { "expiration", fmt::format("{}", overall()->remaining()) },
+               }));
 }
 
 attempt_context_impl::~attempt_context_impl() = default;
@@ -190,12 +195,21 @@ attempt_context_impl::check_and_handle_blocking_transactions(
     // [RETRY-ERR-AMBIG-REPLACE].
     if (auto tx_id = doc.links().staged_transaction_id();
         tx_id.has_value() && tx_id.value() == transaction_id()) {
-      CB_ATTEMPT_CTX_LOG_DEBUG(
-        this, "doc {} has been written by this transaction, ok to continue", doc.id());
+      CB_LOG_DEBUG("doc {id} has been written by this transaction, ok to continue",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", this->transaction_id() },
+                     { "attempt_id", this->id() },
+                     { "id", fmt::format("{}", doc.id()) },
+                   }));
       return cb(std::nullopt);
     }
     if (doc.links().atr_id() && doc.links().atr_bucket_name() && doc.links().staged_attempt_id()) {
-      CB_ATTEMPT_CTX_LOG_DEBUG(this, "doc {} in another txn, checking ATR...", doc.id());
+      CB_LOG_DEBUG("doc {id} in another txn, checking ATR...",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", this->transaction_id() },
+                     { "attempt_id", this->id() },
+                     { "id", fmt::format("{}", doc.id()) },
+                   }));
       auto err = check_forward_compat(stage, doc.links().forward_compat());
       if (err) {
         return cb(err);
@@ -206,11 +220,15 @@ attempt_context_impl::check_and_handle_blocking_transactions(
                                                              std::chrono::seconds(1)),
                                                    std::move(cb));
     }
-    CB_ATTEMPT_CTX_LOG_DEBUG(this,
-                             "doc \"{}\" is in another transaction {}, but doesn't have enough "
-                             "info to check the ATR. Probably a bug, proceeding to overwrite",
-                             doc.id(),
-                             doc.links().staged_attempt_id().value_or("<missing-attempt-id>"));
+    CB_LOG_DEBUG(
+      "doc \"{id}\" is in another transaction {staged_attempt_id}, but doesn't have enough info to "
+      "check the ATR. Probably a bug, proceeding to overwrite",
+      opentelemetry::common::MakeAttributes({
+        { "transaction_id", this->transaction_id() },
+        { "attempt_id", this->id() },
+        { "id", fmt::format("{}", doc.id()) },
+        { "staged_attempt_id", doc.links().staged_attempt_id().value_or("<missing-attempt-id>") },
+      }));
   }
   return cb(std::nullopt);
 }
@@ -220,13 +238,14 @@ attempt_context_impl::get(const core::document_id& id) -> transaction_get_result
 {
   auto barrier = std::make_shared<std::promise<transaction_get_result>>();
   auto f = barrier->get_future();
-  get(id, [barrier](const std::exception_ptr& err, std::optional<transaction_get_result> res) {
-    if (err) {
-      barrier->set_exception(err);
-    } else {
-      barrier->set_value(std::move(*res));
-    }
-  });
+  get(id,
+      [barrier](const std::exception_ptr& err, std::optional<transaction_get_result> res) -> void {
+        if (err) {
+          barrier->set_exception(err);
+        } else {
+          barrier->set_value(std::move(*res));
+        }
+      });
   return f.get();
 }
 
@@ -236,7 +255,7 @@ attempt_context_impl::get(const core::document_id& id, Callback&& cb)
   if (op_list_.get_mode().is_query()) {
     return get_with_query(id, false, std::move(cb));
   }
-  cache_error_async(cb, [self = shared_from_this(), id, cb]() mutable {
+  cache_error_async(cb, [self = shared_from_this(), id, cb]() mutable -> void {
     self->check_if_done(cb);
     self->do_get(
       id,
@@ -245,9 +264,9 @@ attempt_context_impl::get(const core::document_id& id, Callback&& cb)
       [self, id, cb = std::move(cb)](std::optional<error_class> ec,
                                      std::optional<external_exception> cause,
                                      const std::optional<std::string>& err_message,
-                                     std::optional<transaction_get_result> res) mutable {
+                                     std::optional<transaction_get_result> res) mutable -> void {
         auto handler = [self, id, cause, err_message, res = std::move(res), cb = std::move(cb)](
-                         std::optional<error_class> ec) mutable {
+                         std::optional<error_class> ec) mutable -> void {
           if (ec) {
             switch (*ec) {
               case FAIL_EXPIRY:
@@ -309,13 +328,14 @@ attempt_context_impl::get_optional(const core::document_id& id)
 {
   auto barrier = std::make_shared<std::promise<std::optional<transaction_get_result>>>();
   auto f = barrier->get_future();
-  get_optional(id,
-               [barrier](const std::exception_ptr& err, std::optional<transaction_get_result> res) {
-                 if (err) {
-                   return barrier->set_exception(err);
-                 }
-                 return barrier->set_value(std::move(res));
-               });
+  get_optional(
+    id,
+    [barrier](const std::exception_ptr& err, std::optional<transaction_get_result> res) -> void {
+      if (err) {
+        return barrier->set_exception(err);
+      }
+      return barrier->set_value(std::move(res));
+    });
   return f.get();
 }
 
@@ -326,9 +346,9 @@ attempt_context_impl::get_optional(const core::document_id& id, Callback&& cb)
   if (op_list_.get_mode().is_query()) {
     return get_with_query(id, true, std::move(cb));
   }
-  cache_error_async(cb, [self = shared_from_this(), id, cb]() mutable {
+  cache_error_async(cb, [self = shared_from_this(), id, cb]() mutable -> void {
     self->ensure_open_bucket(
-      id.bucket(), [self, id, cb = std::move(cb)](std::error_code ec) mutable {
+      id.bucket(), [self, id, cb = std::move(cb)](std::error_code ec) mutable -> void {
         if (ec) {
           return self->op_completed_with_error(
             std::move(cb), transaction_operation_failed(FAIL_OTHER, ec.message()));
@@ -338,12 +358,13 @@ attempt_context_impl::get_optional(const core::document_id& id, Callback&& cb)
           id,
           false,
           std::nullopt,
-          [self, id, cb = std::move(cb)](std::optional<error_class> ec,
-                                         std::optional<external_exception> cause,
-                                         const std::optional<std::string>& err_message,
-                                         std::optional<transaction_get_result> res) mutable {
+          [self, id, cb = std::move(cb)](
+            std::optional<error_class> ec,
+            std::optional<external_exception> cause,
+            const std::optional<std::string>& err_message,
+            std::optional<transaction_get_result> res) mutable -> void {
             auto handler = [self, id, cause, err_message, res, cb = std::move(cb)](
-                             std::optional<error_class> ec) mutable {
+                             std::optional<error_class> ec) mutable -> void {
               if (ec) {
                 switch (*ec) {
                   case FAIL_EXPIRY:
@@ -406,7 +427,7 @@ attempt_context_impl::get_replica_from_preferred_server_group(
   const core::document_id& id,
   std::function<void(std::exception_ptr, std::optional<transaction_get_result>)>&& cb)
 {
-  cache_error_async(cb, [self = shared_from_this(), id, cb]() mutable {
+  cache_error_async(cb, [self = shared_from_this(), id, cb]() mutable -> void {
     if (self->op_list_.get_mode().is_query()) {
       return self->op_completed_with_error(
         std::move(cb),
@@ -422,9 +443,9 @@ attempt_context_impl::get_replica_from_preferred_server_group(
       [self, id, cb = std::move(cb)](std::optional<error_class> ec,
                                      std::optional<external_exception> cause,
                                      const std::optional<std::string>& err_message,
-                                     std::optional<transaction_get_result> res) mutable {
+                                     std::optional<transaction_get_result> res) mutable -> void {
         auto handler = [self, id, cause, err_message, res = std::move(res), cb = std::move(cb)](
-                         std::optional<error_class> ec) mutable {
+                         std::optional<error_class> ec) mutable -> void {
           if (ec) {
             switch (*ec) {
               case FAIL_EXPIRY:
@@ -495,7 +516,8 @@ attempt_context_impl::get_replica_from_preferred_server_group(const core::docume
   auto barrier = std::make_shared<std::promise<std::optional<transaction_get_result>>>();
   auto f = barrier->get_future();
   get_replica_from_preferred_server_group(
-    id, [barrier](const std::exception_ptr& err, std::optional<transaction_get_result> res) {
+    id,
+    [barrier](const std::exception_ptr& err, std::optional<transaction_get_result> res) -> void {
       if (err) {
         return barrier->set_exception(err);
       }
@@ -533,7 +555,7 @@ attempt_context_impl::get_replica_from_preferred_server_group(
   get_replica_from_preferred_server_group(
     { coll.bucket_name(), coll.scope_name(), coll.name(), id },
     [handler = std::move(handler)](const std::exception_ptr& err,
-                                   std::optional<transaction_get_result> res) mutable {
+                                   std::optional<transaction_get_result> res) mutable -> void {
       if (!res) {
         return handler({ errc::transaction_op::document_not_found }, {});
       }
@@ -594,13 +616,13 @@ attempt_context_impl::get_multi(
                                                    FEATURE_NOT_AVAILABLE_EXCEPTION)),
               {});
   }
-  cache_error_async(cb, [self = shared_from_this(), ids, mode, cb]() mutable {
+  cache_error_async(cb, [self = shared_from_this(), ids, mode, cb]() mutable -> void {
     self->check_if_done(cb);
     const auto manager = std::make_shared<get_multi_orchestrator>(self, ids);
     manager->get_multi(
       mode,
       [self, cb = std::move(cb)](std::exception_ptr err,
-                                 std::optional<transaction_get_multi_result> res) mutable {
+                                 std::optional<transaction_get_multi_result> res) mutable -> void {
         if (err) {
           self->op_completed_with_error(std::move(cb), std::move(err));
           return;
@@ -617,7 +639,9 @@ attempt_context_impl::get_multi(const std::vector<core::document_id>& ids,
   auto barrier = std::make_shared<std::promise<transaction_get_multi_result>>();
   auto f = barrier->get_future();
   get_multi(
-    ids, mode, [barrier](std::exception_ptr err, std::optional<transaction_get_multi_result> res) {
+    ids,
+    mode,
+    [barrier](std::exception_ptr err, std::optional<transaction_get_multi_result> res) -> void {
       if (err) {
         return barrier->set_exception(std::move(err));
       }
@@ -643,23 +667,24 @@ attempt_context_impl::get_multi(
     ids.emplace_back(spec.bucket_, spec.scope_, spec.collection_, spec.id_);
   }
 
-  get_multi(ids, from_public_api(options.mode_), [cb = std::move(cb)](const auto& err, auto res) {
-    if (err) {
-      try {
-        std::rethrow_exception(err);
-      } catch (const op_exception& e) {
-        return cb(core::impl::make_error(e), {});
-      } catch (const transaction_operation_failed& e) {
-        return cb(core::impl::make_error(e), {});
-      } catch (...) {
-        return cb({ errc::transaction_op::generic }, {});
+  get_multi(
+    ids, from_public_api(options.mode_), [cb = std::move(cb)](const auto& err, auto res) -> auto {
+      if (err) {
+        try {
+          std::rethrow_exception(err);
+        } catch (const op_exception& e) {
+          return cb(core::impl::make_error(e), {});
+        } catch (const transaction_operation_failed& e) {
+          return cb(core::impl::make_error(e), {});
+        } catch (...) {
+          return cb({ errc::transaction_op::generic }, {});
+        }
       }
-    }
-    if (res) {
-      return cb({}, couchbase::transactions::transaction_get_multi_result{ res->content() });
-    }
-    return cb({ errc::transaction_op::generic }, {});
-  });
+      if (res) {
+        return cb({}, couchbase::transactions::transaction_get_multi_result{ res->content() });
+      }
+      return cb({ errc::transaction_op::generic }, {});
+    });
 }
 
 auto
@@ -674,7 +699,8 @@ attempt_context_impl::get_multi(
   get_multi(
     specs,
     options,
-    [barrier](error err, std::optional<couchbase::transactions::transaction_get_multi_result> res) {
+    [barrier](error err,
+              std::optional<couchbase::transactions::transaction_get_multi_result> res) -> void {
       return barrier->set_value(std::make_pair(std::move(err), std::move(res)));
     });
   return f.get();
@@ -696,7 +722,7 @@ attempt_context_impl::get_multi_replicas_from_preferred_server_group(
       {});
   }
 
-  cache_error_async(cb, [self = shared_from_this(), ids, mode, cb]() mutable {
+  cache_error_async(cb, [self = shared_from_this(), ids, mode, cb]() mutable -> void {
     self->check_if_done(cb);
     const auto manager = std::make_shared<get_multi_orchestrator>(self, ids);
     manager->get_multi_replicas_from_preferred_server_group(
@@ -704,7 +730,7 @@ attempt_context_impl::get_multi_replicas_from_preferred_server_group(
       [self, cb = std::move(cb)](
         std::exception_ptr err,
         std::optional<transaction_get_multi_replicas_from_preferred_server_group_result>
-          res) mutable {
+          res) mutable -> void {
         if (err) {
           self->op_completed_with_error(std::move(cb), std::move(err));
           return;
@@ -726,9 +752,9 @@ attempt_context_impl::get_multi_replicas_from_preferred_server_group(
   get_multi_replicas_from_preferred_server_group(
     ids,
     mode,
-    [barrier](
-      std::exception_ptr err,
-      std::optional<transaction_get_multi_replicas_from_preferred_server_group_result> res) {
+    [barrier](std::exception_ptr err,
+              std::optional<transaction_get_multi_replicas_from_preferred_server_group_result> res)
+      -> void {
       if (err) {
         return barrier->set_exception(std::move(err));
       }
@@ -760,7 +786,7 @@ attempt_context_impl::get_multi_replicas_from_preferred_server_group(
   }
 
   get_multi_replicas_from_preferred_server_group(
-    ids, from_public_api(options.mode_), [cb = std::move(cb)](const auto& err, auto res) {
+    ids, from_public_api(options.mode_), [cb = std::move(cb)](const auto& err, auto res) -> auto {
       if (err) {
         try {
           std::rethrow_exception(err);
@@ -806,7 +832,7 @@ attempt_context_impl::get_multi_replicas_from_preferred_server_group(
       error err,
       std::optional<
         couchbase::transactions::transaction_get_multi_replicas_from_preferred_server_group_result>
-        res) {
+        res) -> void {
       return barrier->set_value(std::make_pair(std::move(err), std::move(res)));
     });
   return f.get();
@@ -888,11 +914,11 @@ attempt_context_impl::replace(const transaction_get_result& document,
     return replace_raw_with_query(document, std::move(content), std::move(cb));
   }
   return cache_error_async(
-    cb, [self = shared_from_this(), cb, document, content = std::move(content)]() mutable {
+    cb, [self = shared_from_this(), cb, document, content = std::move(content)]() mutable -> void {
       self->ensure_open_bucket(
         document.bucket(),
         [self, cb = std::move(cb), document, content = std::move(content)](
-          std::error_code ec) mutable {
+          std::error_code ec) mutable -> void {
           if (ec) {
             return self->op_completed_with_error(
               std::move(cb), transaction_operation_failed(FAIL_OTHER, ec.message()));
@@ -907,13 +933,23 @@ attempt_context_impl::replace(const transaction_get_result& document,
                 transaction_operation_failed(FAIL_DOC_NOT_FOUND, "can't replace empty doc")
                   .cause(external_exception::DOCUMENT_NOT_FOUND_EXCEPTION));
             }
-            CB_ATTEMPT_CTX_LOG_TRACE(
-              self, "replacing {} with {}", document, utils::to_string(content.data));
+            CB_LOG_TRACE("replacing {document} with {content}",
+                         opentelemetry::common::MakeAttributes({
+                           { "transaction_id", self->transaction_id() },
+                           { "attempt_id", self->id() },
+                           { "document", fmt::format("{}", document) },
+                           { "content", utils::to_string(content.data) },
+                         }));
             self->check_if_done(cb);
             staged_mutation* existing_sm = self->staged_mutations_->find_any(document.id());
             if (existing_sm != nullptr && existing_sm->type() == staged_mutation_type::REMOVE) {
-              CB_ATTEMPT_CTX_LOG_DEBUG(
-                self, "found existing REMOVE of {} while replacing", document);
+              CB_LOG_DEBUG("found existing REMOVE of {document} while replacing",
+                           opentelemetry::common::MakeAttributes({
+                             { "transaction_id", self->transaction_id() },
+                             { "attempt_id", self->id() },
+                             { "document", fmt::format("{}", document) },
+                           }));
+
               return self->op_completed_with_error(
                 std::move(cb),
                 transaction_operation_failed(FAIL_DOC_NOT_FOUND,
@@ -935,8 +971,8 @@ attempt_context_impl::replace(const transaction_get_result& document,
                document,
                cb = std::move(cb),
                op_id,
-               content =
-                 std::move(content)](std::optional<transaction_operation_failed> e1) mutable {
+               content = std::move(content)](
+                std::optional<transaction_operation_failed> e1) mutable -> void {
                 if (e1) {
                   return self->op_completed_with_error(std::move(cb), *e1);
                 }
@@ -951,15 +987,20 @@ attempt_context_impl::replace(const transaction_get_result& document,
                    document,
                    cb = std::move(cb),
                    op_id,
-                   content =
-                     std::move(content)](std::optional<transaction_operation_failed> e2) mutable {
+                   content = std::move(content)](
+                    std::optional<transaction_operation_failed> e2) mutable -> void {
                     if (e2) {
                       return self->op_completed_with_error(std::move(cb), *e2);
                     }
                     if (existing_sm != nullptr &&
                         existing_sm->type() == staged_mutation_type::INSERT) {
-                      CB_ATTEMPT_CTX_LOG_DEBUG(
-                        self, "found existing INSERT of {} while replacing", document);
+                      CB_LOG_DEBUG("found existing INSERT of {document} while replacing",
+                                   opentelemetry::common::MakeAttributes({
+                                     { "transaction_id", self->transaction_id() },
+                                     { "attempt_id", self->id() },
+                                     { "document", fmt::format("{}", document) },
+                                   }));
+
                       self->create_staged_insert(document.id(),
                                                  std::move(content),
                                                  document.cas().value(),
@@ -1046,7 +1087,7 @@ attempt_context_impl::create_staged_replace(
   auto error_handler = [self = shared_from_this()](error_class ec,
                                                    external_exception cause,
                                                    const std::string& msg,
-                                                   Handler&& cb) {
+                                                   Handler&& cb) -> auto {
     transaction_operation_failed err(ec, msg);
     err.cause(cause);
     switch (ec) {
@@ -1062,18 +1103,21 @@ attempt_context_impl::create_staged_replace(
         return self->op_completed_with_error(std::forward<Handler>(cb), err);
     }
   };
-  auto ec = wait_for_hook([self = shared_from_this(), key = id.key()](auto handler) mutable {
-    return self->hooks_.before_staged_replace(self, key, std::move(handler));
-  });
+  auto ec =
+    wait_for_hook([self = shared_from_this(), key = id.key()](auto handler) mutable -> auto {
+      return self->hooks_.before_staged_replace(self, key, std::move(handler));
+    });
   if (ec) {
     return error_handler(
       *ec, UNKNOWN, "before_staged_replace hook raised error", std::forward<Handler>(cb));
   }
-  CB_ATTEMPT_CTX_LOG_TRACE(this,
-                           "about to replace doc {} with cas {} in txn {}",
-                           id,
-                           cas.value(),
-                           overall()->transaction_id());
+  CB_LOG_TRACE("about to replace doc {id} with cas {cas}",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", transaction_id() },
+                 { "attempt_id", this->id() },
+                 { "id", fmt::format("{}", id) },
+                 { "cas", cas.value() },
+               }));
   overall()->cluster_ref().execute(
     req,
     [self = shared_from_this(),
@@ -1083,7 +1127,8 @@ attempt_context_impl::create_staged_replace(
      content = std::move(content),
      original_flags,
      cb = std::forward<Handler>(cb),
-     error_handler = std::move(error_handler)](core::operations::mutate_in_response resp) mutable {
+     error_handler =
+       std::move(error_handler)](core::operations::mutate_in_response resp) mutable -> auto {
       if (auto ec2 = error_class_from_response(resp); ec2) {
         return error_handler(
           *ec2,
@@ -1102,7 +1147,7 @@ attempt_context_impl::create_staged_replace(
          original_flags,
          error_handler = std::move(error_handler),
          cb = std::forward<Handler>(cb),
-         resp = std::move(resp)](auto ec) mutable {
+         resp = std::move(resp)](auto ec) mutable -> auto {
           if (ec) {
             return error_handler(*ec,
                                  UNKNOWN,
@@ -1144,7 +1189,12 @@ attempt_context_impl::create_staged_replace(
             document_metadata,
           };
 
-          CB_ATTEMPT_CTX_LOG_TRACE(self, "replace staged content, result {}", out);
+          CB_LOG_TRACE("replace staged content, result {result}",
+                       opentelemetry::common::MakeAttributes({
+                         { "transaction_id", self->transaction_id() },
+                         { "attempt_id", self->id() },
+                         { "result", fmt::format("{}", out) },
+                       }));
 
           self->supports_replace_body_with_xattr(
             id.bucket(),
@@ -1152,7 +1202,7 @@ attempt_context_impl::create_staged_replace(
              out = std::move(out),
              error_handler = std::move(error_handler),
              original_flags,
-             cb = std::forward<Handler>(cb)](auto ec, bool supports) mutable {
+             cb = std::forward<Handler>(cb)](auto ec, bool supports) mutable -> auto {
               if (ec) {
                 return error_handler(
                   FAIL_OTHER,
@@ -1188,14 +1238,15 @@ attempt_context_impl::replace(const transaction_get_result& document, codec::enc
 {
   auto barrier = std::make_shared<std::promise<transaction_get_result>>();
   auto f = barrier->get_future();
-  replace(document,
-          std::move(content),
-          [barrier](const std::exception_ptr& err, std::optional<transaction_get_result> res) {
-            if (err) {
-              return barrier->set_exception(err);
-            }
-            barrier->set_value(std::move(*res));
-          });
+  replace(
+    document,
+    std::move(content),
+    [barrier](const std::exception_ptr& err, std::optional<transaction_get_result> res) -> void {
+      if (err) {
+        return barrier->set_exception(err);
+      }
+      barrier->set_value(std::move(*res));
+    });
   return f.get();
 }
 
@@ -1204,12 +1255,13 @@ attempt_context_impl::replace_raw(couchbase::transactions::transaction_get_resul
                                   codec::encoded_value content,
                                   couchbase::transactions::async_result_handler&& handler)
 {
-  replace(core::transactions::transaction_get_result(doc),
-          std::move(content),
-          [handler = std::move(handler)](const std::exception_ptr& err,
-                                         std::optional<transaction_get_result> res) mutable {
-            wrap_callback_for_async_public_api(err, std::move(res), std::move(handler));
-          });
+  replace(
+    core::transactions::transaction_get_result(doc),
+    std::move(content),
+    [handler = std::move(handler)](const std::exception_ptr& err,
+                                   std::optional<transaction_get_result> res) mutable -> void {
+      wrap_callback_for_async_public_api(err, std::move(res), std::move(handler));
+    });
 }
 
 auto
@@ -1230,7 +1282,8 @@ attempt_context_impl::insert_raw(const collection& coll,
   -> std::pair<couchbase::error, couchbase::transactions::transaction_get_result>
 {
   return wrap_call_for_public_api(
-    [self = shared_from_this(), coll, &id, content = std::move(content)]() mutable {
+    [self = shared_from_this(), coll, &id, content = std::move(content)]() mutable
+      -> core::transactions::transaction_get_result {
       return self->insert({ coll.bucket_name(), coll.scope_name(), coll.name(), id },
                           std::move(content));
     });
@@ -1245,7 +1298,7 @@ attempt_context_impl::insert_raw(const collection& coll,
   insert({ coll.bucket_name(), coll.scope_name(), coll.name(), std::move(id) },
          std::move(content),
          [handler = std::move(handler)](const std::exception_ptr& err,
-                                        std::optional<transaction_get_result> res) mutable {
+                                        std::optional<transaction_get_result> res) mutable -> void {
            wrap_callback_for_async_public_api(err, std::move(res), std::move(handler));
          });
 }
@@ -1256,14 +1309,15 @@ attempt_context_impl::insert(const core::document_id& id, codec::encoded_value c
 {
   auto barrier = std::make_shared<std::promise<transaction_get_result>>();
   auto f = barrier->get_future();
-  insert(id,
-         std::move(content),
-         [barrier](const std::exception_ptr& err, std::optional<transaction_get_result> res) {
-           if (err) {
-             return barrier->set_exception(err);
-           }
-           barrier->set_value(std::move(*res));
-         });
+  insert(
+    id,
+    std::move(content),
+    [barrier](const std::exception_ptr& err, std::optional<transaction_get_result> res) -> void {
+      if (err) {
+        return barrier->set_exception(err);
+      }
+      barrier->set_value(std::move(*res));
+    });
   return f.get();
 }
 
@@ -1276,10 +1330,11 @@ attempt_context_impl::insert(const core::document_id& id,
     return insert_raw_with_query(id, std::move(content), std::move(cb));
   }
   return cache_error_async(
-    cb, [self = shared_from_this(), id, cb, content = std::move(content)]() mutable {
+    cb, [self = shared_from_this(), id, cb, content = std::move(content)]() mutable -> void {
       self->ensure_open_bucket(
         id.bucket(),
-        [self, id, content = std::move(content), cb = std::move(cb)](std::error_code ec) mutable {
+        [self, id, content = std::move(content), cb = std::move(cb)](
+          std::error_code ec) mutable -> void {
           if (ec) {
             return self->op_completed_with_error(
               std::move(cb), transaction_operation_failed(FAIL_OTHER, ec.message()));
@@ -1291,8 +1346,12 @@ attempt_context_impl::insert(const core::document_id& id,
             if ((existing_sm != nullptr) &&
                 (existing_sm->type() == staged_mutation_type::INSERT ||
                  existing_sm->type() == staged_mutation_type::REPLACE)) {
-              CB_ATTEMPT_CTX_LOG_DEBUG(
-                self, "found existing insert or replace of {} while inserting", id);
+              CB_LOG_DEBUG("found existing insert or replace of {document_id} while inserting",
+                           opentelemetry::common::MakeAttributes({
+                             { "transaction_id", self->transaction_id() },
+                             { "attempt_id", self->id() },
+                             { "document_id", fmt::format("{}", id) },
+                           }));
               return self->op_completed_with_error(
                 std::move(cb),
                 document_exists("found existing insert or replace of same document"));
@@ -1305,12 +1364,17 @@ attempt_context_impl::insert(const core::document_id& id,
             self->select_atr_if_needed_unlocked(
               id,
               [self, existing_sm, cb = std::move(cb), id, op_id, content = std::move(content)](
-                std::optional<transaction_operation_failed> err) mutable {
+                std::optional<transaction_operation_failed> err) mutable -> void {
                 if (err) {
                   return self->op_completed_with_error(std::move(cb), *err);
                 }
                 if (existing_sm != nullptr && existing_sm->type() == staged_mutation_type::REMOVE) {
-                  CB_ATTEMPT_CTX_LOG_DEBUG(self, "found existing remove of {} while inserting", id);
+                  CB_LOG_DEBUG("found existing remove of {document_id} while inserting",
+                               opentelemetry::common::MakeAttributes({
+                                 { "transaction_id", self->transaction_id() },
+                                 { "attempt_id", self->id() },
+                                 { "document_id", fmt::format("{}", id) },
+                               }));
                   return self->create_staged_replace(existing_sm->id(),
                                                      std::move(content),
                                                      existing_sm->current_user_flags(),
@@ -1345,7 +1409,11 @@ attempt_context_impl::select_atr_if_needed_unlocked(
   try {
     std::unique_lock<std::mutex> lock(mutex_);
     if (atr_id_) {
-      CB_ATTEMPT_CTX_LOG_TRACE(this, "atr exists, moving on");
+      CB_LOG_TRACE("atr exists, moving on",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", this->transaction_id() },
+                     { "attempt_id", this->id() },
+                   }));
       return cb(std::nullopt);
     }
     std::size_t vbucket_id = 0;
@@ -1358,22 +1426,30 @@ attempt_context_impl::select_atr_if_needed_unlocked(
       atr_id_ = atr_id_from_bucket_and_key(
         overall()->config(), id.bucket(), atr_ids::atr_id_for_vbucket(vbucket_id));
     }
-    // TODO(SA): cleanup the transaction_context - this should be set (threadsafe)
-    // from the above calls
+    // TODO(SA): cleanup the transaction_context - this should be set (threadsafe) from the above
+    // calls
     overall()->atr_collection(collection_spec_from_id(id));
     overall()->atr_id(atr_id_->key());
     state(attempt_state::NOT_STARTED);
-    CB_ATTEMPT_CTX_LOG_TRACE(
-      this,
-      R"(first mutated doc in transaction is "{}" on vbucket {}, so using atr "{}")",
-      id,
-      vbucket_id,
-      atr_id_.value());
+    CB_LOG_TRACE(
+      R"(first mutated doc in transaction is "{id}" on vbucket {vbucket_id}, so using atr "{atr_id}")",
+      opentelemetry::common::MakeAttributes({
+        { "transaction_id", this->transaction_id() },
+        { "attempt_id", this->id() },
+        { "id", fmt::format("{}", id) },
+        { "vbucket_id", vbucket_id },
+        { "atr_id", fmt::format("{}", atr_id_.value()) },
+      }));
     overall()->cleanup().add_collection(
       { atr_id_->bucket(), atr_id_->scope(), atr_id_->collection() });
     set_atr_pending_locked(id, std::move(lock), std::move(cb));
   } catch (const std::exception& e) {
-    CB_ATTEMPT_CTX_LOG_ERROR(this, "unexpected error \"{}\" during select atr if needed", e.what());
+    CB_LOG_ERROR("unexpected error \"{error_message}\" during select atr if needed",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                   { "error_message", e.what() },
+                 }));
   }
 }
 template<typename Handler, typename Delay>
@@ -1388,7 +1464,7 @@ attempt_context_impl::check_atr_entry_for_blocking_document(const transaction_ge
       shared_from_this(),
       doc.id().key(),
       [self = shared_from_this(), delay = std::move(delay), cb = std::forward<Handler>(cb), doc](
-        auto ec) mutable {
+        auto ec) mutable -> auto {
         if (ec) {
           return cb(transaction_operation_failed(FAIL_WRITE_WRITE_CONFLICT,
                                                  "document is in another transaction")
@@ -1403,13 +1479,14 @@ attempt_context_impl::check_atr_entry_for_blocking_document(const transaction_ge
           self->cluster_ref(),
           atr_id,
           [self, delay = std::move(delay), cb = std::move(cb), doc](
-            std::error_code err, std::optional<active_transaction_record> atr) mutable {
+            std::error_code err, std::optional<active_transaction_record> atr) mutable -> auto {
             if (!err) {
               if (atr) {
                 auto entries = atr->entries();
-                auto it = std::find_if(entries.begin(), entries.end(), [&doc](const atr_entry& e) {
-                  return e.attempt_id() == doc.links().staged_attempt_id();
-                });
+                auto it =
+                  std::find_if(entries.begin(), entries.end(), [&doc](const atr_entry& e) -> auto {
+                    return e.attempt_id() == doc.links().staged_attempt_id();
+                  });
                 if (it != entries.end()) {
                   auto fwd_err = check_forward_compat(
                     forward_compat_stage::WRITE_WRITE_CONFLICT_READING_ATR, it->forward_compat());
@@ -1419,19 +1496,29 @@ attempt_context_impl::check_atr_entry_for_blocking_document(const transaction_ge
                   switch (it->state()) {
                     case attempt_state::COMPLETED:
                     case attempt_state::ROLLED_BACK:
-                      CB_ATTEMPT_CTX_LOG_DEBUG(self,
-                                               "existing atr entry can be ignored due to state {}",
-                                               attempt_state_name(it->state()));
+                      CB_LOG_DEBUG("existing atr entry can be ignored due to state {state}",
+                                   opentelemetry::common::MakeAttributes({
+                                     { "transaction_id", self->transaction_id() },
+                                     { "attempt_id", self->id() },
+                                     { "state", attempt_state_name(it->state()) },
+                                   }));
                       return cb(std::nullopt);
                     default:
-                      CB_ATTEMPT_CTX_LOG_DEBUG(self,
-                                               "existing atr entry found in state {}, retrying",
-                                               attempt_state_name(it->state()));
+                      CB_LOG_DEBUG("existing atr entry found in state {state}, retrying",
+                                   opentelemetry::common::MakeAttributes({
+                                     { "transaction_id", self->transaction_id() },
+                                     { "attempt_id", self->id() },
+                                     { "state", attempt_state_name(it->state()) },
+                                   }));
                   }
                   return self->check_atr_entry_for_blocking_document(doc, delay, std::move(cb));
                 }
               }
-              CB_ATTEMPT_CTX_LOG_DEBUG(self, "no blocking atr entry");
+              CB_LOG_DEBUG("no blocking atr entry",
+                           opentelemetry::common::MakeAttributes({
+                             { "transaction_id", self->transaction_id() },
+                             { "attempt_id", self->id() },
+                           }));
               return cb(std::nullopt);
             }
             // if we are here, there is still a write-write conflict
@@ -1453,42 +1540,52 @@ attempt_context_impl::remove(const transaction_get_result& document, VoidCallbac
   if (op_list_.get_mode().is_query()) {
     return remove_with_query(document, std::move(cb));
   }
-  return cache_error_async(cb, [self = shared_from_this(), document, cb]() mutable {
+  return cache_error_async(cb, [self = shared_from_this(), document, cb]() mutable -> void {
     self->check_if_done(cb);
     self->ensure_open_bucket(
-      document.bucket(), [self, document, cb = std::move(cb)](std::error_code ec) mutable {
+      document.bucket(), [self, document, cb = std::move(cb)](std::error_code ec) mutable -> void {
         if (ec) {
           return self->op_completed_with_error(
             std::move(cb), transaction_operation_failed(FAIL_OTHER, ec.message()));
         }
         const staged_mutation* existing_sm = self->staged_mutations_->find_any(document.id());
         auto error_handler =
-          [self](error_class ec, const std::string& msg, VoidCallback&& cb) mutable {
-            transaction_operation_failed err(ec, msg);
-            switch (ec) {
-              case FAIL_EXPIRY:
-                self->expiry_overtime_mode_ = true;
-                return self->op_completed_with_error(std::move(cb), err.expired());
-              case FAIL_DOC_NOT_FOUND:
-              case FAIL_DOC_ALREADY_EXISTS:
-              case FAIL_CAS_MISMATCH:
-              case FAIL_TRANSIENT:
-              case FAIL_AMBIGUOUS:
-                return self->op_completed_with_error(std::move(cb), err.retry());
-              case FAIL_HARD:
-                return self->op_completed_with_error(std::move(cb), err.no_rollback());
-              default:
-                return self->op_completed_with_error(std::move(cb), err);
-            }
-          };
+          [self](error_class ec, const std::string& msg, VoidCallback&& cb) mutable -> void {
+          transaction_operation_failed err(ec, msg);
+          switch (ec) {
+            case FAIL_EXPIRY:
+              self->expiry_overtime_mode_ = true;
+              return self->op_completed_with_error(std::move(cb), err.expired());
+            case FAIL_DOC_NOT_FOUND:
+            case FAIL_DOC_ALREADY_EXISTS:
+            case FAIL_CAS_MISMATCH:
+            case FAIL_TRANSIENT:
+            case FAIL_AMBIGUOUS:
+              return self->op_completed_with_error(std::move(cb), err.retry());
+            case FAIL_HARD:
+              return self->op_completed_with_error(std::move(cb), err.no_rollback());
+            default:
+              return self->op_completed_with_error(std::move(cb), err);
+          }
+        };
         if (self->check_expiry_pre_commit(STAGE_REMOVE, document.id().key())) {
           return error_handler(FAIL_EXPIRY, "transaction expired", std::move(cb));
         }
-        CB_ATTEMPT_CTX_LOG_DEBUG(self, "removing {}", document);
+        CB_LOG_DEBUG("removing {document}",
+                     opentelemetry::common::MakeAttributes({
+                       { "transaction_id", self->transaction_id() },
+                       { "attempt_id", self->id() },
+                       { "document", fmt::format("{}", document) },
+                     }));
         auto op_id = uid_generator::next();
         if (existing_sm != nullptr) {
           if (existing_sm->type() == staged_mutation_type::REMOVE) {
-            CB_ATTEMPT_CTX_LOG_DEBUG(self, "found existing REMOVE of {} while removing", document);
+            CB_LOG_DEBUG("found existing REMOVE of {document} while removing",
+                         opentelemetry::common::MakeAttributes({
+                           { "transaction_id", self->transaction_id() },
+                           { "attempt_id", self->id() },
+                           { "document", fmt::format("{}", document) },
+                         }));
             return self->op_completed_with_error(
               std::move(cb),
               transaction_operation_failed(FAIL_DOC_NOT_FOUND,
@@ -1505,7 +1602,7 @@ attempt_context_impl::remove(const transaction_get_result& document, VoidCallbac
           document,
           forward_compat_stage::WRITE_WRITE_CONFLICT_REMOVING,
           [self, document, cb = std::move(cb), op_id, error_handler = std::move(error_handler)](
-            std::optional<transaction_operation_failed> err1) mutable {
+            std::optional<transaction_operation_failed> err1) mutable -> void {
             if (err1) {
               return self->op_completed_with_error(std::move(cb), *err1);
             }
@@ -1520,7 +1617,7 @@ attempt_context_impl::remove(const transaction_get_result& document, VoidCallbac
                cb = std::move(cb),
                op_id,
                error_handler = std::move(error_handler)](
-                std::optional<transaction_operation_failed> err2) mutable {
+                std::optional<transaction_operation_failed> err2) mutable -> void {
                 if (err2) {
                   return self->op_completed_with_error(std::move(cb), *err2);
                 }
@@ -1532,15 +1629,19 @@ attempt_context_impl::remove(const transaction_get_result& document, VoidCallbac
                    document = std::move(document),
                    cb = std::move(cb),
                    op_id,
-                   error_handler = std::move(error_handler)](auto ec) mutable {
+                   error_handler = std::move(error_handler)](auto ec) mutable -> auto {
                     if (ec) {
                       return error_handler(
                         *ec, "before_staged_remove hook raised error", std::move(cb));
                     }
-                    CB_ATTEMPT_CTX_LOG_TRACE(self,
-                                             "about to remove doc {} with cas {}",
-                                             document.id(),
-                                             document.cas().value());
+
+                    CB_LOG_TRACE("about to remove doc {} with cas {}",
+                                 opentelemetry::common::MakeAttributes({
+                                   { "transaction_id", self->transaction_id() },
+                                   { "attempt_id", self->id() },
+                                   { "id", fmt::format("{}", document.id()) },
+                                   { "cas", document.cas().value() },
+                                 }));
                     core::operations::mutate_in_request req{ document.id() };
                     auto txn =
                       self->create_document_metadata("remove", op_id, document.metadata(), 0);
@@ -1564,7 +1665,7 @@ attempt_context_impl::remove(const transaction_get_result& document, VoidCallbac
                        document = std::move(document),
                        cb = std::move(cb),
                        error_handler = std::move(error_handler)](
-                        core::operations::mutate_in_response resp) mutable {
+                        core::operations::mutate_in_response resp) mutable -> auto {
                         auto ec = error_class_from_response(resp);
                         if (ec) {
                           return error_handler(*ec, resp.ctx.ec().message(), std::move(cb));
@@ -1577,16 +1678,19 @@ attempt_context_impl::remove(const transaction_get_result& document, VoidCallbac
                            document = std::move(document),
                            cb = std::move(cb),
                            error_handler = std::move(error_handler),
-                           resp = std::move(resp)](auto ec) mutable {
+                           resp = std::move(resp)](auto ec) mutable -> auto {
                             if (ec) {
                               return error_handler(*ec, resp.ctx.ec().message(), std::move(cb));
                             }
 
-                            CB_ATTEMPT_CTX_LOG_TRACE(self,
-                                                     "removed doc {} CAS={}, rc={}",
-                                                     document.id(),
-                                                     resp.cas.value(),
-                                                     resp.ctx.ec().message());
+                            CB_LOG_TRACE("removed doc",
+                                         opentelemetry::common::MakeAttributes({
+                                           { "transaction_id", self->transaction_id() },
+                                           { "attempt_id", self->id() },
+                                           { "id", fmt::format("{}", document.id()) },
+                                           { "cas", resp.cas.value() },
+                                           { "rc", resp.ctx.ec().message() },
+                                         }));
 
                             self->staged_mutations_->add(staged_mutation{
                               staged_mutation_type::REMOVE,
@@ -1618,23 +1722,29 @@ attempt_context_impl::remove_staged_insert(const core::document_id& id, VoidCall
         .expired());
   }
 
-  auto error_handler =
-    [self = shared_from_this()](error_class ec, const std::string& msg, VoidCallback&& cb) mutable {
-      transaction_operation_failed err(ec, msg);
-      switch (ec) {
-        case FAIL_HARD:
-          return self->op_completed_with_error(std::move(cb), err.no_rollback());
-        default:
-          return self->op_completed_with_error(std::move(cb), err.retry());
-      }
-    };
-  CB_ATTEMPT_CTX_LOG_DEBUG(this, "removing staged insert {}", id);
+  auto error_handler = [self = shared_from_this()](error_class ec,
+                                                   const std::string& msg,
+                                                   VoidCallback&& cb) mutable -> void {
+    transaction_operation_failed err(ec, msg);
+    switch (ec) {
+      case FAIL_HARD:
+        return self->op_completed_with_error(std::move(cb), err.no_rollback());
+      default:
+        return self->op_completed_with_error(std::move(cb), err.retry());
+    }
+  };
+  CB_LOG_DEBUG("removing staged insert {document_id}",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", this->transaction_id() },
+                 { "attempt_id", this->id() },
+                 { "id", fmt::format("{}", id) },
+               }));
 
   return hooks_.before_remove_staged_insert(
     shared_from_this(),
     id.key(),
     [self = shared_from_this(), id, cb = std::move(cb), error_handler = std::move(error_handler)](
-      auto ec) mutable {
+      auto ec) mutable -> auto {
       if (ec) {
         return error_handler(*ec, "before_remove_staged_insert hook returned error", std::move(cb));
       }
@@ -1650,17 +1760,22 @@ attempt_context_impl::remove_staged_insert(const core::document_id& id, VoidCall
       return self->overall()->cluster_ref().execute(
         req,
         [self, id, cb = std::move(cb), error_handler = std::move(error_handler)](
-          const core::operations::mutate_in_response& resp) mutable {
+          const core::operations::mutate_in_response& resp) mutable -> auto {
           auto ec = error_class_from_response(resp);
           if (ec) {
-            CB_ATTEMPT_CTX_LOG_DEBUG(self, "remove_staged_insert got error {}", *ec);
+            CB_LOG_DEBUG("remove_staged_insert got error {error_class}",
+                         opentelemetry::common::MakeAttributes({
+                           { "transaction_id", self->transaction_id() },
+                           { "attempt_id", self->id() },
+                           { "error_class", *ec },
+                         }));
             return error_handler(*ec, resp.ctx.ec().message(), std::move(cb));
           }
           return self->hooks_.after_remove_staged_insert(
             self,
             id.key(),
             [self, id, cb = std::move(cb), error_handler = std::move(error_handler)](
-              auto ec) mutable {
+              auto ec) mutable -> auto {
               if (ec) {
                 return error_handler(
                   *ec, "after_remove_staged_insert hook returned error", std::move(cb));
@@ -1677,7 +1792,7 @@ attempt_context_impl::remove(const transaction_get_result& document)
 {
   auto barrier = std::make_shared<std::promise<void>>();
   auto f = barrier->get_future();
-  remove(document, [barrier](const std::exception_ptr& err) {
+  remove(document, [barrier](const std::exception_ptr& err) -> void {
     if (err) {
       return barrier->set_exception(err);
     }
@@ -1751,7 +1866,7 @@ attempt_context_impl::query_begin_work(const std::optional<std::string>& query_c
   }
   tao::json::value mutations = tao::json::empty_array;
   if (!staged_mutations_->empty()) {
-    staged_mutations_->iterate([&mutations](staged_mutation& mut) {
+    staged_mutations_->iterate([&mutations](staged_mutation& mut) -> void {
       mutations.push_back(tao::json::value{
         { "scp", mut.id().scope() },
         { "coll", mut.id().collection() },
@@ -1763,8 +1878,12 @@ attempt_context_impl::query_begin_work(const std::optional<std::string>& query_c
     });
   }
   txdata["mutations"] = mutations;
-  CB_ATTEMPT_CTX_LOG_TRACE(
-    this, "begin_work using txdata: {}", core::utils::json::generate(txdata));
+  CB_LOG_TRACE("begin_work using txdata: {data}",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", this->transaction_id() },
+                 { "attempt_id", this->id() },
+                 { "data", core::utils::json::generate(txdata) },
+               }));
   wrap_query(
     BEGIN_WORK,
     opts,
@@ -1773,14 +1892,22 @@ attempt_context_impl::query_begin_work(const std::optional<std::string>& query_c
     STAGE_QUERY_BEGIN_WORK,
     false,
     query_context,
-    [self = shared_from_this(), cb = std::move(cb)](const std::exception_ptr& err,
-                                                    core::operations::query_response resp) mutable {
+    [self = shared_from_this(), cb = std::move(cb)](
+      const std::exception_ptr& err, core::operations::query_response resp) mutable -> void {
       if (resp.served_by_node.empty()) {
-        CB_ATTEMPT_CTX_LOG_TRACE(self,
-                                 "begin_work didn't reach a query node, resetting mode to kv");
+        CB_LOG_TRACE("begin_work didn't reach a query node, resetting mode to kv",
+                     opentelemetry::common::MakeAttributes({
+                       { "transaction_id", self->transaction_id() },
+                       { "attempt_id", self->id() },
+                     }));
         self->op_list_.reset_query_mode();
       } else {
-        CB_ATTEMPT_CTX_LOG_TRACE(self, "begin_work setting query node to {}", resp.served_by_node);
+        CB_LOG_TRACE("begin_work setting query node to {address}",
+                     opentelemetry::common::MakeAttributes({
+                       { "transaction_id", self->transaction_id() },
+                       { "attempt_id", self->id() },
+                       { "address", resp.served_by_node },
+                     }));
         self->op_list_.set_query_node(resp.served_by_node);
       }
       // we check for expiry _after_ this call, so we always set the query
@@ -1830,10 +1957,13 @@ attempt_context_impl::handle_query_error(const core::operations::query_response&
   }
   auto [tx_err, query_result] = couchbase::core::impl::build_transaction_query_result(resp);
   // TODO(SA): look at ambiguous and unambiguous timeout errors vs the codes, etc...
-  CB_ATTEMPT_CTX_LOG_TRACE(this,
-                           "handling query error {}, {} errors in meta_data",
-                           resp.ctx.ec.message(),
-                           resp.meta.errors ? "has" : "no");
+  CB_LOG_TRACE("handling query error {error}, {has_errors} errors in meta_data",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", this->transaction_id() },
+                 { "attempt_id", this->id() },
+                 { "error", resp.ctx.ec.message() },
+                 { "has_errors", resp.meta.errors ? "has" : "no" },
+               }));
   if (resp.ctx.ec == couchbase::errc::common::ambiguous_timeout ||
       resp.ctx.ec == couchbase::errc::common::unambiguous_timeout) {
     return std::make_exception_ptr(query_attempt_expired(tx_err));
@@ -1856,7 +1986,12 @@ attempt_context_impl::handle_query_error(const core::operations::query_response&
 
   // just chose first one, to start with...
   auto chosen_error = choose_error(errors);
-  CB_ATTEMPT_CTX_LOG_TRACE(this, "chosen query error: {}", jsonify(chosen_error));
+  CB_LOG_TRACE("chosen query error: {error_data}",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", this->transaction_id() },
+                 { "attempt_id", this->id() },
+                 { "error_data", jsonify(chosen_error) },
+               }));
   auto code = chosen_error.at("code").as<std::uint64_t>();
 
   // we have a fixed strategy for these errors...
@@ -1916,8 +2051,12 @@ attempt_context_impl::handle_query_error(const core::operations::query_response&
         } else if (exception_to_raise == std::string("failed_post_commit")) {
           err.failed_post_commit();
         } else if (exception_to_raise != std::string("failed")) {
-          CB_ATTEMPT_CTX_LOG_TRACE(
-            this, "unknown value in raise field: {}, raising failed", exception_to_raise);
+          CB_LOG_TRACE("unknown value in raise field: {exception}, raising failed",
+                       opentelemetry::common::MakeAttributes({
+                         { "transaction_id", this->transaction_id() },
+                         { "attempt_id", this->id() },
+                         { "exception", exception_to_raise },
+                       }));
         }
       }
       return std::make_exception_ptr(err);
@@ -1934,7 +2073,12 @@ attempt_context_impl::do_query(const std::string& statement,
                                QueryCallback&& cb)
 {
   const tao::json::value txdata;
-  CB_ATTEMPT_CTX_LOG_TRACE(this, "do_query called with statement {}", statement);
+  CB_LOG_TRACE("do_query called with statement {statement}",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", this->transaction_id() },
+                 { "attempt_id", this->id() },
+                 { "statement", statement },
+               }));
   wrap_query(statement,
              opts,
              {},
@@ -1943,7 +2087,7 @@ attempt_context_impl::do_query(const std::string& statement,
              true,
              query_context,
              [self = shared_from_this(), cb = std::move(cb)](
-               std::exception_ptr err, core::operations::query_response resp) mutable {
+               std::exception_ptr err, core::operations::query_response resp) mutable -> void {
                if (err) {
                  return self->op_completed_with_error(std::move(cb), std::move(err));
                }
@@ -1981,7 +2125,7 @@ attempt_context_impl::wrap_query(
   std::function<void(std::exception_ptr, core::operations::query_response)>&& cb)
 {
   bool has_staged_binary{ false };
-  staged_mutations_->iterate([&has_staged_binary](auto& mutation) {
+  staged_mutations_->iterate([&has_staged_binary](auto& mutation) -> auto {
     if (mutation.is_staged_binary()) {
       has_staged_binary = true;
     }
@@ -2035,7 +2179,7 @@ attempt_context_impl::wrap_query(
   return hooks_.before_query(
     shared_from_this(),
     statement,
-    [self = shared_from_this(), statement, req, cb = std::move(cb)](auto ec) mutable {
+    [self = shared_from_this(), statement, req, cb = std::move(cb)](auto ec) mutable -> auto {
       if (ec) {
         auto err = std::make_exception_ptr(
           transaction_operation_failed(*ec, "before_query hook raised error"));
@@ -2050,14 +2194,27 @@ attempt_context_impl::wrap_query(
                   {});
       }
 
-      CB_ATTEMPT_CTX_LOG_TRACE(self, "http request: {}", dump_request(req));
+      CB_LOG_TRACE("http request: {request}",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", self->transaction_id() },
+                     { "attempt_id", self->id() },
+                     { "request", dump_request(req) },
+                   }));
       return self->overall()->cluster_ref().execute(
-        req, [self, req, cb = std::move(cb)](core::operations::query_response resp) mutable {
-          CB_ATTEMPT_CTX_LOG_TRACE(
-            self, "response: {} status: {}", resp.ctx.http_body, resp.meta.status);
+        req,
+        [self, req, cb = std::move(cb)](core::operations::query_response resp) mutable -> auto {
+          CB_LOG_TRACE("execute query",
+                       opentelemetry::common::MakeAttributes({
+                         { "transaction_id", self->transaction_id() },
+                         { "attempt_id", self->id() },
+                         { "response", resp.ctx.http_body },
+                         { "status", resp.meta.status },
+                       }));
           const auto stmt = resp.ctx.statement;
           return self->hooks_.after_query(
-            self, stmt, [self, resp = std::move(resp), cb = std::move(cb)](auto ec) mutable {
+            self,
+            stmt,
+            [self, resp = std::move(resp), cb = std::move(cb)](auto ec) mutable -> auto {
               if (ec) {
                 auto err = std::make_exception_ptr(
                   transaction_operation_failed(*ec, "after_query hook raised error"));
@@ -2081,11 +2238,11 @@ attempt_context_impl::query(const std::string& statement,
      statement,
      options,
      cb,
-     query_context = std::move(query_context)]() mutable {
+     query_context = std::move(query_context)]() mutable -> void {
       self->check_if_done(cb);
       // decrement in_flight, as we just incremented it in cache_error_async.
       self->op_list_.set_query_mode(
-        [self, statement, options, query_context, cb]() mutable {
+        [self, statement, options, query_context, cb]() mutable -> void {
           // set query context if set
           if (query_context) {
             self->query_context_ = query_context.value();
@@ -2093,14 +2250,14 @@ attempt_context_impl::query(const std::string& statement,
           self->query_begin_work(
             query_context,
             [self, statement, query_context, options, cb = std::move(cb)](
-              std::exception_ptr err) mutable {
+              std::exception_ptr err) mutable -> void {
               if (err) {
                 return self->op_completed_with_error(std::move(cb), std::move(err));
               }
               return self->do_query(statement, options, query_context, std::move(cb));
             });
         },
-        [self, statement, options, query_context, cb]() mutable {
+        [self, statement, options, query_context, cb]() mutable -> void {
           return self->do_query(statement, options, query_context, std::move(cb));
         });
     });
@@ -2114,16 +2271,16 @@ attempt_context_impl::do_core_query(
 {
   auto barrier = std::make_shared<std::promise<core::operations::query_response>>();
   auto f = barrier->get_future();
-  query(
-    statement,
-    options,
-    query_context,
-    [barrier](const std::exception_ptr& err, std::optional<core::operations::query_response> resp) {
-      if (err) {
-        return barrier->set_exception(err);
-      }
-      barrier->set_value(*resp);
-    });
+  query(statement,
+        options,
+        query_context,
+        [barrier](const std::exception_ptr& err,
+                  std::optional<core::operations::query_response> resp) -> void {
+          if (err) {
+            return barrier->set_exception(err);
+          }
+          barrier->set_value(*resp);
+        });
   return f.get();
 }
 
@@ -2201,7 +2358,7 @@ make_kv_txdata(std::optional<transaction_get_result> doc = std::nullopt) -> tao:
 void
 attempt_context_impl::get_with_query(const core::document_id& id, bool optional, Callback&& cb)
 {
-  cache_error_async(cb, [self = shared_from_this(), id, optional, cb]() mutable {
+  cache_error_async(cb, [self = shared_from_this(), id, optional, cb]() mutable -> void {
     couchbase::transactions::transaction_query_options opts;
     opts.readonly(true);
     return self->wrap_query(
@@ -2212,8 +2369,8 @@ attempt_context_impl::get_with_query(const core::document_id& id, bool optional,
       STAGE_QUERY_KV_GET,
       true,
       {},
-      [self, id, optional, cb = std::move(cb)](std::exception_ptr err,
-                                               core::operations::query_response resp) mutable {
+      [self, id, optional, cb = std::move(cb)](
+        std::exception_ptr err, core::operations::query_response resp) mutable -> void {
         if (resp.ctx.ec == couchbase::errc::key_value::document_not_found) {
           return self->op_completed_with_callback(std::move(cb),
                                                   std::optional<transaction_get_result>());
@@ -2230,7 +2387,12 @@ attempt_context_impl::get_with_query(const core::document_id& id, bool optional,
                 std::move(cb),
                 transaction_operation_failed(FAIL_DOC_NOT_FOUND, "document not found"));
             }
-            CB_ATTEMPT_CTX_LOG_TRACE(self, "get_with_query got: {}", resp.rows.front());
+            CB_LOG_TRACE("get_with_query got: {result}",
+                         opentelemetry::common::MakeAttributes({
+                           { "transaction_id", self->transaction_id() },
+                           { "attempt_id", self->id() },
+                           { "result", fmt::format("{}", resp.rows.front()) },
+                         }));
             transaction_get_result doc(id, core::utils::json::parse(resp.rows.front()));
             return self->op_completed_with_callback(std::move(cb),
                                                     std::optional<transaction_get_result>(doc));
@@ -2262,7 +2424,7 @@ attempt_context_impl::insert_raw_with_query(const core::document_id& id,
                                             Callback&& cb)
 {
   cache_error_async(
-    cb, [self = shared_from_this(), id, content = std::move(content), cb]() mutable {
+    cb, [self = shared_from_this(), id, content = std::move(content), cb]() mutable -> void {
       const couchbase::transactions::transaction_query_options opts;
       return self->wrap_query(
         KV_INSERT,
@@ -2273,7 +2435,7 @@ attempt_context_impl::insert_raw_with_query(const core::document_id& id,
         true,
         {},
         [self, id, cb = std::move(cb)](const std::exception_ptr& err,
-                                       core::operations::query_response resp) mutable {
+                                       core::operations::query_response resp) mutable -> void {
           if (err) {
             try {
               std::rethrow_exception(err);
@@ -2291,7 +2453,12 @@ attempt_context_impl::insert_raw_with_query(const core::document_id& id,
           }
           // make a transaction_get_result from the row...
           try {
-            CB_ATTEMPT_CTX_LOG_TRACE(self, "insert_raw_with_query got: {}", resp.rows.front());
+            CB_LOG_TRACE("insert_raw_with_query got: {result}",
+                         opentelemetry::common::MakeAttributes({
+                           { "transaction_id", self->transaction_id() },
+                           { "attempt_id", self->id() },
+                           { "result", fmt::format("{}", resp.rows.front()) },
+                         }));
             transaction_get_result doc(id, core::utils::json::parse(resp.rows.front()));
             return self->op_completed_with_callback(std::move(cb),
                                                     std::optional<transaction_get_result>(doc));
@@ -2310,7 +2477,7 @@ attempt_context_impl::replace_raw_with_query(const transaction_get_result& docum
                                              Callback&& cb)
 {
   cache_error_async(
-    cb, [self = shared_from_this(), document, content = std::move(content), cb]() mutable {
+    cb, [self = shared_from_this(), document, content = std::move(content), cb]() mutable -> void {
       const couchbase::transactions::transaction_query_options opts;
       return self->wrap_query(
         KV_REPLACE,
@@ -2321,7 +2488,7 @@ attempt_context_impl::replace_raw_with_query(const transaction_get_result& docum
         true,
         {},
         [self, id = document.id(), cb = std::move(cb)](
-          const std::exception_ptr& err, core::operations::query_response resp) mutable {
+          const std::exception_ptr& err, core::operations::query_response resp) mutable -> void {
           if (err) {
             try {
               std::rethrow_exception(err);
@@ -2343,7 +2510,12 @@ attempt_context_impl::replace_raw_with_query(const transaction_get_result& docum
           }
           // make a transaction_get_result from the row...
           try {
-            CB_ATTEMPT_CTX_LOG_TRACE(self, "replace_raw_with_query got: {}", resp.rows.front());
+            CB_LOG_TRACE("replace_raw_with_query got: {result}",
+                         opentelemetry::common::MakeAttributes({
+                           { "transaction_id", self->transaction_id() },
+                           { "attempt_id", self->id() },
+                           { "result", fmt::format("{}", resp.rows.front()) },
+                         }));
             transaction_get_result doc(id, core::utils::json::parse(resp.rows.front()));
             return self->op_completed_with_callback(std::move(cb),
                                                     std::optional<transaction_get_result>(doc));
@@ -2359,7 +2531,7 @@ attempt_context_impl::replace_raw_with_query(const transaction_get_result& docum
 void
 attempt_context_impl::remove_with_query(const transaction_get_result& document, VoidCallback&& cb)
 {
-  cache_error_async(cb, [self = shared_from_this(), document, cb]() {
+  cache_error_async(cb, [self = shared_from_this(), document, cb]() -> void {
     const couchbase::transactions::transaction_query_options opts;
     return self->wrap_query(
       KV_REMOVE,
@@ -2369,8 +2541,9 @@ attempt_context_impl::remove_with_query(const transaction_get_result& document, 
       STAGE_QUERY_KV_REMOVE,
       true,
       {},
-      [self, id = document.id(), cb](const std::exception_ptr& err,
-                                     const core::operations::query_response& /* resp */) mutable {
+      [self, id = document.id(), cb](
+        const std::exception_ptr& err,
+        const core::operations::query_response& /* resp */) mutable -> void {
         if (err) {
           try {
             std::rethrow_exception(err);
@@ -2400,7 +2573,11 @@ void
 attempt_context_impl::commit_with_query(VoidCallback&& cb)
 {
   const core::operations::query_request req;
-  CB_ATTEMPT_CTX_LOG_TRACE(this, "commit_with_query called");
+  CB_LOG_TRACE("commit_with_query called",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", this->transaction_id() },
+                 { "attempt_id", this->id() },
+               }));
   const couchbase::transactions::transaction_query_options opts;
   wrap_query(
     COMMIT,
@@ -2410,8 +2587,9 @@ attempt_context_impl::commit_with_query(VoidCallback&& cb)
     STAGE_QUERY_COMMIT,
     true,
     {},
-    [self = shared_from_this(), cb](const std::exception_ptr& err,
-                                    const core::operations::query_response& /* resp */) mutable {
+    [self = shared_from_this(),
+     cb](const std::exception_ptr& err,
+         const core::operations::query_response& /* resp */) mutable -> void {
       self->is_done_ = true;
       if (err) {
         try {
@@ -2443,43 +2621,56 @@ void
 attempt_context_impl::rollback_with_query(VoidCallback&& cb)
 {
   const core::operations::query_request req;
-  CB_ATTEMPT_CTX_LOG_TRACE(this, "rollback_with_query called");
+  CB_LOG_TRACE("rollback_with_query called",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", this->transaction_id() },
+                 { "attempt_id", this->id() },
+               }));
   const couchbase::transactions::transaction_query_options opts;
-  wrap_query(
-    ROLLBACK,
-    opts,
-    {},
-    make_kv_txdata(std::nullopt),
-    STAGE_QUERY_ROLLBACK,
-    true,
-    {},
-    [self = shared_from_this(), cb](const std::exception_ptr& err,
-                                    const core::operations::query_response& /* resp */) mutable {
-      self->is_done_ = true;
-      if (err) {
-        try {
-          std::rethrow_exception(err);
-        } catch (const transaction_operation_failed&) {
-          return cb(std::current_exception());
-        } catch (const query_attempt_not_found& e) {
-          CB_ATTEMPT_CTX_LOG_DEBUG(self,
-                                   "got query_attempt_not_found, assuming query was "
-                                   "already rolled back successfullly: {}",
-                                   e.what());
-        } catch (const std::exception& e) {
-          return cb(std::make_exception_ptr(
-            transaction_operation_failed(FAIL_OTHER, e.what()).no_rollback()));
-        }
-      }
-      self->state(attempt_state::ROLLED_BACK);
-      CB_ATTEMPT_CTX_LOG_TRACE(self, "rollback successful");
-      return cb({});
-    });
+  wrap_query(ROLLBACK,
+             opts,
+             {},
+             make_kv_txdata(std::nullopt),
+             STAGE_QUERY_ROLLBACK,
+             true,
+             {},
+             [self = shared_from_this(),
+              cb](const std::exception_ptr& err,
+                  const core::operations::query_response& /* resp */) mutable -> void {
+               self->is_done_ = true;
+               if (err) {
+                 try {
+                   std::rethrow_exception(err);
+                 } catch (const transaction_operation_failed&) {
+                   return cb(std::current_exception());
+                 } catch (const query_attempt_not_found& e) {
+                   CB_LOG_DEBUG(
+                     "got query_attempt_not_found, assuming query was already rolled back "
+                     "successfullly: {error_message}",
+                     opentelemetry::common::MakeAttributes({
+                       { "transaction_id", self->transaction_id() },
+                       { "attempt_id", self->id() },
+                       { "error_message", e.what() },
+                     }));
+
+                 } catch (const std::exception& e) {
+                   return cb(std::make_exception_ptr(
+                     transaction_operation_failed(FAIL_OTHER, e.what()).no_rollback()));
+                 }
+               }
+               self->state(attempt_state::ROLLED_BACK);
+               CB_LOG_TRACE("rollback successful",
+                            opentelemetry::common::MakeAttributes({
+                              { "transaction_id", self->transaction_id() },
+                              { "attempt_id", self->id() },
+                            }));
+               return cb({});
+             });
 }
 void
 attempt_context_impl::atr_commit(bool ambiguity_resolution_mode)
 {
-  retry_op<void>([self = shared_from_this(), &ambiguity_resolution_mode]() {
+  retry_op<void>([self = shared_from_this(), &ambiguity_resolution_mode]() -> void {
     try {
       const std::string prefix(ATR_FIELD_ATTEMPTS + "." + self->id() + ".");
       core::operations::mutate_in_request req{ self->atr_id_.value() };
@@ -2500,7 +2691,7 @@ attempt_context_impl::atr_commit(bool ambiguity_resolution_mode)
         throw client_error(
           *ec, fmt::format("atr_commit check for expiry threw error, error_class={}", ec.value()));
       }
-      ec = wait_for_hook([self](auto handler) mutable {
+      ec = wait_for_hook([self](auto handler) mutable -> auto {
         return self->hooks_.before_atr_commit(self, std::move(handler));
       });
       if (ec) {
@@ -2512,16 +2703,19 @@ attempt_context_impl::atr_commit(bool ambiguity_resolution_mode)
       self->staged_mutations_->extract_to(prefix, req);
       auto barrier = std::make_shared<std::promise<result>>();
       auto f = barrier->get_future();
-      CB_ATTEMPT_CTX_LOG_TRACE(self,
-                               "updating atr {}, setting to {}",
-                               req.id,
-                               attempt_state_name(attempt_state::COMMITTED));
+      CB_LOG_TRACE("updating atr {id}, setting to {state}",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", self->transaction_id() },
+                     { "attempt_id", self->id() },
+                     { "id", fmt::format("{}", req.id) },
+                     { "state", attempt_state_name(attempt_state::COMMITTED) },
+                   }));
       self->overall()->cluster_ref().execute(
-        req, [barrier](const core::operations::mutate_in_response& resp) {
+        req, [barrier](const core::operations::mutate_in_response& resp) -> void {
           barrier->set_value(result::create_from_subdoc_response(resp));
         });
       auto res = wrap_operation_future(f, false);
-      ec = wait_for_hook([self](auto handler) mutable {
+      ec = wait_for_hook([self](auto handler) mutable -> auto {
         return self->hooks_.after_atr_commit(self, std::move(handler));
       });
       if (ec) {
@@ -2542,7 +2736,11 @@ attempt_context_impl::atr_commit(bool ambiguity_resolution_mode)
           throw out;
         }
         case FAIL_AMBIGUOUS:
-          CB_ATTEMPT_CTX_LOG_DEBUG(self, "atr_commit got FAIL_AMBIGUOUS, resolving ambiguity...");
+          CB_LOG_DEBUG("atr_commit got FAIL_AMBIGUOUS, resolving ambiguity...",
+                       opentelemetry::common::MakeAttributes({
+                         { "transaction_id", self->transaction_id() },
+                         { "attempt_id", self->id() },
+                       }));
           ambiguity_resolution_mode = true;
           throw retry_operation(e.what());
         case FAIL_TRANSIENT:
@@ -2554,7 +2752,7 @@ attempt_context_impl::atr_commit(bool ambiguity_resolution_mode)
         case FAIL_PATH_ALREADY_EXISTS:
           // Need retry_op as atr_commit_ambiguity_resolution can throw
           // retry_operation
-          return retry_op<void>([self]() {
+          return retry_op<void>([self]() -> void {
             return self->atr_commit_ambiguity_resolution();
           });
         case FAIL_HARD: {
@@ -2592,13 +2790,13 @@ attempt_context_impl::atr_commit(bool ambiguity_resolution_mode)
           throw out;
         }
         default: {
-          CB_ATTEMPT_CTX_LOG_ERROR(self,
-                                   "failed to commit transaction {}, attempt {}, "
-                                   "ambiguity_resolution_mode {}, with error {}",
-                                   self->transaction_id(),
-                                   self->id(),
-                                   ambiguity_resolution_mode,
-                                   e.what());
+          CB_LOG_ERROR("failed to commit transaction",
+                       opentelemetry::common::MakeAttributes({
+                         { "transaction_id", self->transaction_id() },
+                         { "attempt_id", self->id() },
+                         { "ambiguity_resolution_mode", ambiguity_resolution_mode },
+                         { "error_message", e.what() },
+                       }));
           auto out = transaction_operation_failed(ec, e.what());
           if (ambiguity_resolution_mode) {
             out.no_rollback().ambiguous();
@@ -2618,7 +2816,7 @@ attempt_context_impl::atr_commit_ambiguity_resolution()
     if (ec) {
       throw client_error(*ec, "atr_commit_ambiguity_resolution raised error");
     }
-    ec = wait_for_hook([self = shared_from_this()](auto handler) mutable {
+    ec = wait_for_hook([self = shared_from_this()](auto handler) mutable -> auto {
       return self->hooks_.before_atr_commit_ambiguity_resolution(self, std::move(handler));
     });
     if (ec) {
@@ -2632,13 +2830,17 @@ attempt_context_impl::atr_commit_ambiguity_resolution()
     auto barrier = std::make_shared<std::promise<result>>();
     auto f = barrier->get_future();
     overall()->cluster_ref().execute(
-      req, [barrier](const core::operations::lookup_in_response& resp) {
+      req, [barrier](const core::operations::lookup_in_response& resp) -> void {
         barrier->set_value(result::create_from_subdoc_response(resp));
       });
     auto res = wrap_operation_future(f);
     auto atr_status_raw = res.values[0].content_as<std::string>();
-    CB_ATTEMPT_CTX_LOG_DEBUG(
-      this, "atr_commit_ambiguity_resolution read atr state {}", atr_status_raw);
+    CB_LOG_DEBUG("atr_commit_ambiguity_resolution read atr state {state}",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                   { "state", atr_status_raw },
+                 }));
     auto atr_status = attempt_state_value(atr_status_raw);
     switch (atr_status) {
       case attempt_state::COMMITTED:
@@ -2682,7 +2884,7 @@ attempt_context_impl::atr_complete()
 {
   try {
     const result atr_res;
-    auto ec = wait_for_hook([self = shared_from_this()](auto handler) mutable {
+    auto ec = wait_for_hook([self = shared_from_this()](auto handler) mutable -> auto {
       return self->hooks_.before_atr_complete(self, std::move(handler));
     });
     if (ec) {
@@ -2696,7 +2898,12 @@ attempt_context_impl::atr_complete()
     }
     // FIXME(CXXCBC-549): if atr_id_ is optional, we should report an error somehow
     // NOLINTBEGIN(bugprone-unchecked-optional-access)
-    CB_ATTEMPT_CTX_LOG_DEBUG(this, "removing attempt {} from atr", atr_id_.value());
+    CB_LOG_DEBUG("removing attempt {atr_id} from atr",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                   { "atr_id", fmt::format("{}", atr_id_.value()) },
+                 }));
     const std::string prefix(ATR_FIELD_ATTEMPTS + "." + id());
     core::operations::mutate_in_request req{ atr_id_.value() };
     // NOLINTEND(bugprone-unchecked-optional-access)
@@ -2709,11 +2916,11 @@ attempt_context_impl::atr_complete()
     auto barrier = std::make_shared<std::promise<result>>();
     auto f = barrier->get_future();
     overall()->cluster_ref().execute(
-      req, [barrier](const core::operations::mutate_in_response& resp) {
+      req, [barrier](const core::operations::mutate_in_response& resp) -> void {
         barrier->set_value(result::create_from_subdoc_response(resp));
       });
     wrap_operation_future(f);
-    ec = wait_for_hook([self = shared_from_this()](auto handler) mutable {
+    ec = wait_for_hook([self = shared_from_this()](auto handler) mutable -> auto {
       return self->hooks_.after_atr_complete(self, std::move(handler));
     });
     if (ec) {
@@ -2725,7 +2932,12 @@ attempt_context_impl::atr_complete()
       case FAIL_HARD:
         throw transaction_operation_failed(ec, er.what()).no_rollback().failed_post_commit();
       default:
-        CB_ATTEMPT_CTX_LOG_INFO(this, "ignoring error in atr_complete {}", er.what());
+        CB_LOG_INFO("ignoring error in atr_complete",
+                    opentelemetry::common::MakeAttributes({
+                      { "transaction_id", this->transaction_id() },
+                      { "attempt_id", this->id() },
+                      { "error_message", er.what() },
+                    }));
     }
   }
 }
@@ -2734,7 +2946,7 @@ void
 attempt_context_impl::commit(VoidCallback&& cb)
 {
   // for now, lets keep the blocking implementation
-  std::thread([cb = std::move(cb), self = shared_from_this()]() mutable {
+  std::thread([cb = std::move(cb), self = shared_from_this()]() mutable -> void {
     try {
       self->commit();
       return cb({});
@@ -2749,14 +2961,22 @@ attempt_context_impl::commit(VoidCallback&& cb)
 void
 attempt_context_impl::commit()
 {
-  CB_ATTEMPT_CTX_LOG_DEBUG(this, "waiting on ops to finish...");
+  CB_LOG_DEBUG("waiting on ops to finish...",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", this->transaction_id() },
+                 { "attempt_id", this->id() },
+               }));
   op_list_.wait_and_block_ops();
   existing_error(false);
-  CB_ATTEMPT_CTX_LOG_DEBUG(this, "commit {}", id());
+  CB_LOG_DEBUG("commit",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", this->transaction_id() },
+                 { "attempt_id", this->id() },
+               }));
   if (op_list_.get_mode().is_query()) {
     auto barrier = std::make_shared<std::promise<void>>();
     auto f = barrier->get_future();
-    commit_with_query([barrier](const std::exception_ptr& err) {
+    commit_with_query([barrier](const std::exception_ptr& err) -> void {
       if (err) {
         barrier->set_exception(err);
       } else {
@@ -2769,7 +2989,7 @@ attempt_context_impl::commit()
       throw transaction_operation_failed(FAIL_EXPIRY, "transaction expired").expired();
     }
     if (atr_id_ && !atr_id_->key().empty() && !is_done_) {
-      retry_op_exp<void>([self = shared_from_this()]() {
+      retry_op_exp<void>([self = shared_from_this()]() -> void {
         self->atr_commit(false);
       });
       staged_mutations_->commit(shared_from_this());
@@ -2778,8 +2998,11 @@ attempt_context_impl::commit()
     } else {
       // no mutation, no need to commit
       if (!is_done_) {
-        CB_ATTEMPT_CTX_LOG_DEBUG(this,
-                                 "calling commit on attempt that has got no mutations, skipping");
+        CB_LOG_DEBUG("calling commit on attempt that has got no mutations, skipping",
+                     opentelemetry::common::MakeAttributes({
+                       { "transaction_id", this->transaction_id() },
+                       { "attempt_id", this->id() },
+                     }));
         is_done_ = true;
         return;
       } // do not rollback or retry
@@ -2798,7 +3021,7 @@ attempt_context_impl::atr_abort()
     if (ec) {
       throw client_error(*ec, "atr_abort check for expiry threw error");
     }
-    ec = wait_for_hook([self = shared_from_this()](auto handler) mutable {
+    ec = wait_for_hook([self = shared_from_this()](auto handler) mutable -> auto {
       return self->hooks_.before_atr_aborted(self, std::move(handler));
     });
     if (ec) {
@@ -2825,30 +3048,50 @@ attempt_context_impl::atr_abort()
     auto barrier = std::make_shared<std::promise<result>>();
     auto f = barrier->get_future();
     overall()->cluster_ref().execute(
-      req, [barrier](const core::operations::mutate_in_response& resp) {
+      req, [barrier](const core::operations::mutate_in_response& resp) -> void {
         barrier->set_value(result::create_from_subdoc_response(resp));
       });
     wrap_operation_future(f);
     state(attempt_state::ABORTED);
 
-    ec = wait_for_hook([self = shared_from_this()](auto handler) mutable {
+    ec = wait_for_hook([self = shared_from_this()](auto handler) mutable -> auto {
       return self->hooks_.after_atr_aborted(self, std::move(handler));
     });
     if (ec) {
       throw client_error(*ec, "after_atr_aborted hook threw error");
     }
-    CB_ATTEMPT_CTX_LOG_DEBUG(this, "rollback completed atr abort phase");
+    CB_LOG_DEBUG("rollback completed atr abort phase",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                 }));
   } catch (const client_error& e) {
     auto ec = e.ec();
-    CB_ATTEMPT_CTX_LOG_TRACE(this, "atr_abort got {} {}", ec, e.what());
+    CB_LOG_TRACE("atr_abort got {error_class} {error_message}",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                   { "error_class", ec },
+                   { "error_message", e.what() },
+                 }));
     if (expiry_overtime_mode_.load()) {
-      CB_ATTEMPT_CTX_LOG_DEBUG(this, "atr_abort got error \"{}\" while in overtime mode", e.what());
+      CB_LOG_DEBUG("atr_abort got error \"{error_message}\" while in overtime mode",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", this->transaction_id() },
+                     { "attempt_id", this->id() },
+                     { "error_message", e.what() },
+                   }));
       throw transaction_operation_failed(FAIL_EXPIRY,
                                          std::string("expired in atr_abort with {} ") + e.what())
         .no_rollback()
         .expired();
     }
-    CB_ATTEMPT_CTX_LOG_DEBUG(this, "atr_abort got error {}", ec);
+    CB_LOG_DEBUG("atr_abort got error {error_class}",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                   { "error_class", ec },
+                 }));
     switch (ec) {
       case FAIL_EXPIRY:
         expiry_overtime_mode_ = true;
@@ -2882,7 +3125,7 @@ attempt_context_impl::atr_rollback_complete()
       throw client_error(*ec, "atr_rollback_complete raised error");
     }
 
-    ec = wait_for_hook([self = shared_from_this()](auto handler) mutable {
+    ec = wait_for_hook([self = shared_from_this()](auto handler) mutable -> auto {
       return self->hooks_.before_atr_rolled_back(self, std::move(handler));
     });
     if (ec) {
@@ -2901,12 +3144,12 @@ attempt_context_impl::atr_rollback_complete()
     auto barrier = std::make_shared<std::promise<result>>();
     auto f = barrier->get_future();
     overall()->cluster_ref().execute(
-      req, [barrier](const core::operations::mutate_in_response& resp) {
+      req, [barrier](const core::operations::mutate_in_response& resp) -> void {
         barrier->set_value(result::create_from_subdoc_response(resp));
       });
     wrap_operation_future(f);
     state(attempt_state::ROLLED_BACK);
-    ec = wait_for_hook([self = shared_from_this()](auto handler) mutable {
+    ec = wait_for_hook([self = shared_from_this()](auto handler) mutable -> auto {
       return self->hooks_.after_atr_rolled_back(self, std::move(handler));
     });
     if (ec) {
@@ -2917,33 +3160,61 @@ attempt_context_impl::atr_rollback_complete()
   } catch (const client_error& e) {
     auto ec = e.ec();
     if (expiry_overtime_mode_.load()) {
-      CB_ATTEMPT_CTX_LOG_DEBUG(
-        this, "atr_rollback_complete error while in overtime mode {}", e.what());
+      CB_LOG_DEBUG("atr_rollback_complete error while in overtime mode {error_message}",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", this->transaction_id() },
+                     { "attempt_id", this->id() },
+                     { "error_message", e.what() },
+                   }));
       throw transaction_operation_failed(
         FAIL_EXPIRY, std::string("expired in atr_rollback_complete with {} ") + e.what())
         .no_rollback()
         .expired();
     }
-    CB_ATTEMPT_CTX_LOG_DEBUG(this, "atr_rollback_complete got error {}", ec);
+    CB_LOG_DEBUG("atr_rollback_complete got error {error_class}",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                   { "error_class", ec },
+                 }));
     // FIXME(SA): if atr_id_ is optional, we should report an error somehow
     // TODO(CXXCBC-549)
     // NOLINTBEGIN(bugprone-unchecked-optional-access)
     switch (ec) {
       case FAIL_DOC_NOT_FOUND:
       case FAIL_PATH_NOT_FOUND:
-        CB_ATTEMPT_CTX_LOG_DEBUG(this, "atr {} not found, ignoring", atr_id_->key());
+        CB_LOG_DEBUG("atr {document_id} not found, ignoring",
+                     opentelemetry::common::MakeAttributes({
+                       { "transaction_id", this->transaction_id() },
+                       { "attempt_id", this->id() },
+                       { "document_id", atr_id_->key() },
+                     }));
         is_done_ = true;
         break;
       case FAIL_ATR_FULL:
-        CB_ATTEMPT_CTX_LOG_DEBUG(this, "atr {} full!", atr_id_->key());
+        CB_LOG_DEBUG("atr {document_id} full!",
+                     opentelemetry::common::MakeAttributes({
+                       { "transaction_id", this->transaction_id() },
+                       { "attempt_id", this->id() },
+                       { "document_id", atr_id_->key() },
+                     }));
         throw retry_operation(e.what());
       case FAIL_HARD:
         throw transaction_operation_failed(ec, e.what()).no_rollback();
       case FAIL_EXPIRY:
-        CB_ATTEMPT_CTX_LOG_DEBUG(this, "timed out writing atr {}", atr_id_->key());
+        CB_LOG_DEBUG("timed out writing atr {document_id}",
+                     opentelemetry::common::MakeAttributes({
+                       { "transaction_id", this->transaction_id() },
+                       { "attempt_id", this->id() },
+                       { "document_id", atr_id_->key() },
+                     }));
         throw transaction_operation_failed(ec, e.what()).no_rollback().expired();
       default:
-        CB_ATTEMPT_CTX_LOG_DEBUG(this, "retrying atr_rollback_complete");
+        CB_LOG_DEBUG("retrying atr_rollback_complete",
+                     opentelemetry::common::MakeAttributes({
+                       { "transaction_id", this->transaction_id() },
+                       { "attempt_id", this->id() },
+                     }));
         throw retry_operation(e.what());
     }
     // NOLINTEND(bugprone-unchecked-optional-access)
@@ -2953,7 +3224,7 @@ void
 attempt_context_impl::rollback(VoidCallback&& cb)
 {
   // for now, lets keep the blocking implementation
-  std::thread([cb = std::move(cb), this]() mutable {
+  std::thread([cb = std::move(cb), this]() mutable -> void {
     if (op_list_.get_mode().is_query()) {
       return rollback_with_query(std::move(cb));
     }
@@ -2976,11 +3247,15 @@ void
 attempt_context_impl::rollback()
 {
   op_list_.wait_and_block_ops();
-  CB_ATTEMPT_CTX_LOG_DEBUG(this, "rolling back {}", id());
+  CB_LOG_DEBUG("rolling back",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", this->transaction_id() },
+                 { "attempt_id", this->id() },
+               }));
   if (op_list_.get_mode().is_query()) {
     auto barrier = std::make_shared<std::promise<void>>();
     auto f = barrier->get_future();
-    rollback_with_query([barrier](const std::exception_ptr& err) {
+    rollback_with_query([barrier](const std::exception_ptr& err) -> void {
       if (err) {
         barrier->set_exception(err);
       } else {
@@ -2994,36 +3269,50 @@ attempt_context_impl::rollback()
   if (!atr_id_ || atr_id_->key().empty() || state() == attempt_state::NOT_STARTED) {
     // TODO(SA): check this, but if we try to rollback an empty txn, we should
     // prevent a subsequent commit
-    CB_ATTEMPT_CTX_LOG_DEBUG(this, "rollback called on txn with no mutations");
+    CB_LOG_DEBUG("rollback called on txn with no mutations",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                 }));
     is_done_ = true;
     return;
   }
   if (is_done()) {
-    std::string msg("Transaction already done, cannot rollback");
-    CB_ATTEMPT_CTX_LOG_ERROR(this, "{}", msg);
+    CB_LOG_ERROR("Transaction already done, cannot rollback",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                 }));
     // need to raise a FAIL_OTHER which is not retryable or rollback-able
-    throw transaction_operation_failed(FAIL_OTHER, msg).no_rollback();
+    throw transaction_operation_failed(FAIL_OTHER, "Transaction already done, cannot rollback")
+      .no_rollback();
   }
   try {
     // (1) atr_abort
-    retry_op_exp<void>([self = shared_from_this()]() {
+    retry_op_exp<void>([self = shared_from_this()]() -> void {
       self->atr_abort();
     });
     // (2) rollback staged mutations
     staged_mutations_->rollback(shared_from_this());
-    CB_ATTEMPT_CTX_LOG_DEBUG(this, "rollback completed unstaging docs");
+    CB_LOG_DEBUG("rollback completed unstaging docs",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                 }));
 
     // (3) atr_rollback
-    retry_op_exp<void>([self = shared_from_this()]() {
+    retry_op_exp<void>([self = shared_from_this()]() -> void {
       self->atr_rollback_complete();
     });
   } catch (const client_error& e) {
     const error_class ec = e.ec();
-    CB_ATTEMPT_CTX_LOG_ERROR(this,
-                             "rollback transaction {}, attempt {} fail with error {}",
-                             transaction_id(),
-                             id(),
-                             e.what());
+    CB_LOG_ERROR(
+      "rollback transaction {transaction_id}, attempt {attempt_id} fail with error {error_message}",
+      opentelemetry::common::MakeAttributes({
+        { "transaction_id", this->transaction_id() },
+        { "attempt_id", this->id() },
+        { "error_message", e.what() },
+      }));
     if (ec == FAIL_HARD) {
       throw transaction_operation_failed(ec, e.what()).no_rollback();
     }
@@ -3037,10 +3326,20 @@ attempt_context_impl::has_expired_client_side(std::string place,
   const bool over = overall()->has_expired_client_side();
   const bool hook = hooks_.has_expired_client_side(shared_from_this(), place, std::move(doc_id));
   if (over) {
-    CB_ATTEMPT_CTX_LOG_DEBUG(this, "{} expired in {}", id(), place);
+    CB_LOG_DEBUG("expired in {place}",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                   { "place", place },
+                 }));
   }
   if (hook) {
-    CB_ATTEMPT_CTX_LOG_DEBUG(this, "{} fake expiry in {}", id(), place);
+    CB_LOG_DEBUG("fake expiry in {place}",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                   { "place", place },
+                 }));
   }
   return over || hook;
 }
@@ -3050,11 +3349,13 @@ attempt_context_impl::check_expiry_pre_commit(std::string stage,
                                               std::optional<const std::string> doc_id) -> bool
 {
   if (has_expired_client_side(stage, std::move(doc_id))) {
-    CB_ATTEMPT_CTX_LOG_DEBUG(this,
-                             "{} has expired in stage {}, entering expiry-overtime mode - will "
-                             "make one attempt to rollback",
-                             id(),
-                             stage);
+    CB_LOG_DEBUG("has expired in stage {stage}, entering expiry-overtime mode - will make one "
+                 "attempt to rollback",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                   { "stage", stage },
+                 }));
 
     // [EXP-ROLLBACK] Combo of setting this mode and throwing AttemptExpired
     // will result in an attempt to rollback, which will ignore expiry, and bail
@@ -3071,12 +3372,21 @@ attempt_context_impl::error_if_expired_and_not_in_overtime(const std::string& st
   -> std::optional<error_class>
 {
   if (expiry_overtime_mode_.load()) {
-    CB_ATTEMPT_CTX_LOG_DEBUG(
-      this, "not doing expired check in {} as already in expiry-overtime", stage);
+    CB_LOG_DEBUG("not doing expired check in {stage} as already in expiry-overtime",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                   { "stage", stage },
+                 }));
     return {};
   }
   if (has_expired_client_side(stage, std::move(doc_id))) {
-    CB_ATTEMPT_CTX_LOG_DEBUG(this, "expired in {}", stage);
+    CB_LOG_DEBUG("expired in {stage}",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                   { "stage", stage },
+                 }));
     return FAIL_EXPIRY;
   }
   return {};
@@ -3090,16 +3400,22 @@ attempt_context_impl::check_expiry_during_commit_or_rollback(
   // [EXP-COMMIT-OVERTIME]
   if (!expiry_overtime_mode_.load()) {
     if (has_expired_client_side(stage, std::move(doc_id))) {
-      CB_ATTEMPT_CTX_LOG_DEBUG(this,
-                               "{} has expired in stage {}, entering expiry-overtime mode (one "
-                               "attempt to complete commit)",
-                               id(),
-                               stage);
+      CB_LOG_DEBUG("has expired in stage {stage}, entering expiry-overtime mode (one attempt to "
+                   "complete commit)",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", this->transaction_id() },
+                     { "attempt_id", this->id() },
+                     { "stage", stage },
+                   }));
       expiry_overtime_mode_ = true;
     }
   } else {
-    CB_ATTEMPT_CTX_LOG_DEBUG(
-      this, "{} ignoring expiry in stage {}  as in expiry-overtime mode", id(), stage);
+    CB_LOG_DEBUG("ignoring expiry in stage {stage}  as in expiry-overtime mode",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                   { "stage", stage },
+                 }));
   }
 }
 
@@ -3120,55 +3436,71 @@ attempt_context_impl::set_atr_pending_locked(
         return fn(transaction_operation_failed(*ec, "transaction expired setting ATR").expired());
       }
       auto error_handler =
-        [self = shared_from_this(),
-         &lock](error_class ec,
-                const std::string& message,
-                const core::document_id& doc_id,
-                std::function<void(std::optional<transaction_operation_failed>)>&& fn) mutable {
-          transaction_operation_failed err(ec, message);
-          CB_ATTEMPT_CTX_LOG_TRACE(self, "got {} trying to set atr to pending", message);
-          if (self->expiry_overtime_mode_.load()) {
-            return fn(err.no_rollback().expired());
-          }
-          switch (ec) {
-            case FAIL_EXPIRY:
-              self->expiry_overtime_mode_ = true;
-              // this should trigger rollback (unlike the above when already in
-              // overtime mode)
-              return fn(err.expired());
-            case FAIL_ATR_FULL:
-              return fn(err);
-            case FAIL_PATH_ALREADY_EXISTS:
-              // assuming this got resolved, moving on as if ok
-              return fn(std::nullopt);
-            case FAIL_AMBIGUOUS:
-              // Retry just this
-              CB_ATTEMPT_CTX_LOG_DEBUG(self, "got FAIL_AMBIGUOUS, retrying set atr pending", ec);
-              return self->overall()->after_delay(
-                std::chrono::milliseconds(1), [self, doc_id, &lock, fn = std::move(fn)]() mutable {
-                  self->set_atr_pending_locked(doc_id, std::move(lock), std::move(fn));
-                });
-            case FAIL_TRANSIENT:
-              // Retry txn
-              return fn(err.retry());
-            case FAIL_HARD:
-              return fn(err.no_rollback());
-            default:
-              return fn(err);
-          }
-        };
+        [self = shared_from_this(), &lock](
+          error_class ec,
+          const std::string& message,
+          const core::document_id& doc_id,
+          std::function<void(std::optional<transaction_operation_failed>)>&& fn) mutable -> void {
+        transaction_operation_failed err(ec, message);
+        CB_LOG_TRACE("got {error_message} trying to set atr to pending",
+                     opentelemetry::common::MakeAttributes({
+                       { "transaction_id", self->transaction_id() },
+                       { "attempt_id", self->id() },
+                       { "error_message", message },
+                     }));
+        if (self->expiry_overtime_mode_.load()) {
+          return fn(err.no_rollback().expired());
+        }
+        switch (ec) {
+          case FAIL_EXPIRY:
+            self->expiry_overtime_mode_ = true;
+            // this should trigger rollback (unlike the above when already in
+            // overtime mode)
+            return fn(err.expired());
+          case FAIL_ATR_FULL:
+            return fn(err);
+          case FAIL_PATH_ALREADY_EXISTS:
+            // assuming this got resolved, moving on as if ok
+            return fn(std::nullopt);
+          case FAIL_AMBIGUOUS:
+            // Retry just this
+            CB_LOG_DEBUG("got FAIL_AMBIGUOUS, retrying set atr pending",
+                         opentelemetry::common::MakeAttributes({
+                           { "transaction_id", self->transaction_id() },
+                           { "attempt_id", self->id() },
+                           { "error_class", ec },
+                         }));
+            return self->overall()->after_delay(
+              std::chrono::milliseconds(1),
+              [self, doc_id, &lock, fn = std::move(fn)]() mutable -> void {
+                self->set_atr_pending_locked(doc_id, std::move(lock), std::move(fn));
+              });
+          case FAIL_TRANSIENT:
+            // Retry txn
+            return fn(err.retry());
+          case FAIL_HARD:
+            return fn(err.no_rollback());
+          default:
+            return fn(err);
+        }
+      };
       return hooks_.before_atr_pending(
         shared_from_this(),
         [self = shared_from_this(),
          id,
          prefix,
          fn = std::move(fn),
-         error_handler = std::move(error_handler)](auto ec) mutable {
+         error_handler = std::move(error_handler)](auto ec) mutable -> auto {
           if (ec) {
             return error_handler(*ec, "before_atr_pending hook raised error", id, std::move(fn));
           }
 
-          CB_ATTEMPT_CTX_LOG_DEBUG(self, "updating atr {}", self->atr_id_.value());
+          CB_LOG_DEBUG("updating atr {document_id}",
+                       opentelemetry::common::MakeAttributes({
+                         { "transaction_id", self->transaction_id() },
+                         { "attempt_id", self->id() },
+                         { "document_id", fmt::format("{}", self->atr_id_.value()) },
+                       }));
 
           const std::chrono::nanoseconds remaining = self->overall()->remaining();
           // This bounds the value to [0-timeout].  It should always be in this
@@ -3217,7 +3549,7 @@ attempt_context_impl::set_atr_pending_locked(
           return self->overall()->cluster_ref().execute(
             req,
             [self, fn = std::move(fn), error_handler = std::move(error_handler)](
-              core::operations::mutate_in_response resp) mutable {
+              core::operations::mutate_in_response resp) mutable -> auto {
               auto ec = error_class_from_response(resp);
               if (ec) {
                 return error_handler(
@@ -3231,7 +3563,7 @@ attempt_context_impl::set_atr_pending_locked(
                 [self,
                  fn = std::move(fn),
                  error_handler = std::move(error_handler),
-                 resp = std::move(resp)](auto ec) mutable {
+                 resp = std::move(resp)](auto ec) mutable -> auto {
                   if (ec) {
                     return error_handler(
                       *ec,
@@ -3241,17 +3573,26 @@ attempt_context_impl::set_atr_pending_locked(
                   }
 
                   self->state(attempt_state::PENDING);
-                  CB_ATTEMPT_CTX_LOG_DEBUG(self,
-                                           "set ATR {} to Pending, got CAS (start time) {}",
-                                           self->atr_id_.value(),
-                                           resp.cas.value());
+                  CB_LOG_DEBUG("set ATR {document_id} to Pending, got CAS (start time) {cas}",
+                               opentelemetry::common::MakeAttributes({
+                                 { "transaction_id", self->transaction_id() },
+                                 { "attempt_id", self->id() },
+                                 { "document_id", fmt::format("{}", self->atr_id_.value()) },
+                                 { "cas", resp.cas.value() },
+                               }));
+
                   return fn(std::nullopt);
                 });
             });
         });
     }
   } catch (const std::exception& e) {
-    CB_ATTEMPT_CTX_LOG_ERROR(this, "unexpected error setting atr pending {}", e.what());
+    CB_LOG_ERROR("unexpected error setting atr pending",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                   { "error_message", e.what() },
+                 }));
     return fn(transaction_operation_failed(FAIL_OTHER, "unexpected error setting atr pending"));
   }
 }
@@ -3301,7 +3642,12 @@ attempt_context_impl::do_get(const core::document_id& id,
     if (const staged_mutation* own_write = check_for_own_write(id); own_write != nullptr) {
       const auto own_write_content = own_write->staged_content();
       if (own_write_content.has_value()) {
-        CB_ATTEMPT_CTX_LOG_DEBUG(this, "found own-write of mutated doc {}", id);
+        CB_LOG_DEBUG("found own-write of mutated doc {document_id}",
+                     opentelemetry::common::MakeAttributes({
+                       { "transaction_id", this->transaction_id() },
+                       { "attempt_id", this->id() },
+                       { "document_id", fmt::format("{}", id) },
+                     }));
         return cb(std::nullopt,
                   std::nullopt,
                   std::nullopt,
@@ -3316,9 +3662,16 @@ attempt_context_impl::do_get(const core::document_id& id,
     }
     if (const staged_mutation* own_remove = staged_mutations_->find_remove(id);
         own_remove != nullptr) {
-      auto msg = fmt::format("found own-write of removed doc {}", id);
-      CB_ATTEMPT_CTX_LOG_DEBUG(this, "{}", msg);
-      return cb(FAIL_DOC_NOT_FOUND, std::nullopt, msg, std::nullopt);
+      CB_LOG_DEBUG("found own-write of removed doc {document_id}",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", this->transaction_id() },
+                     { "attempt_id", this->id() },
+                     { "document_id", fmt::format("{}", id) },
+                   }));
+      return cb(FAIL_DOC_NOT_FOUND,
+                std::nullopt,
+                fmt::format("found own-write of removed doc {}", id),
+                std::nullopt);
     }
 
     return hooks_.before_doc_get(
@@ -3328,7 +3681,7 @@ attempt_context_impl::do_get(const core::document_id& id,
        id,
        allow_replica,
        resolving_missing_atr_entry = std::move(resolving_missing_atr_entry),
-       cb = std::forward<Handler>(cb)](auto ec) mutable {
+       cb = std::forward<Handler>(cb)](auto ec) mutable -> auto {
         if (ec) {
           return cb(ec, std::nullopt, "before_doc_get hook raised error", std::nullopt);
         }
@@ -3343,7 +3696,7 @@ attempt_context_impl::do_get(const core::document_id& id,
            cb = std::move(cb)](std::optional<error_class> ec,
                                std::optional<external_exception> cause,
                                const std::optional<std::string>& err_message,
-                               std::optional<transaction_get_result> doc) mutable {
+                               std::optional<transaction_get_result> doc) mutable -> auto {
             if (!ec && !doc) {
               // it just isn't there.
               return cb(std::nullopt, std::nullopt, std::nullopt, std::nullopt);
@@ -3355,8 +3708,11 @@ attempt_context_impl::do_get(const core::document_id& id,
 
             if (!doc->links().is_document_in_transaction()) {
               if (doc->links().is_deleted()) {
-                CB_ATTEMPT_CTX_LOG_DEBUG(self,
-                                         "doc not in txn, and is_deleted, so not returning it.");
+                CB_LOG_DEBUG("doc not in txn, and is_deleted, so not returning it",
+                             opentelemetry::common::MakeAttributes({
+                               { "transaction_id", self->transaction_id() },
+                               { "attempt_id", self->id() },
+                             }));
                 // doc has been deleted, not in txn, so don't return it
                 return cb(std::nullopt, std::nullopt, std::nullopt, std::nullopt);
               }
@@ -3379,14 +3735,22 @@ attempt_context_impl::do_get(const core::document_id& id,
                           *doc, doc->links().staged_content_json_or_binary()));
             }
 
-            CB_ATTEMPT_CTX_LOG_DEBUG(self,
-                                     "doc {} in transaction, resolving_missing_atr_entry={}",
-                                     *doc,
-                                     resolving_missing_atr_entry.value_or("-"));
+            CB_LOG_DEBUG(
+              "doc {} in transaction",
+              opentelemetry::common::MakeAttributes({
+                { "transaction_id", self->transaction_id() },
+                { "attempt_id", self->id() },
+                { "document", fmt::format("{}", *doc) },
+                { "resolving_missing_atr_entry", resolving_missing_atr_entry.value_or("-") },
+              }));
 
             if (resolving_missing_atr_entry.has_value() &&
                 resolving_missing_atr_entry.value() == doc->links().staged_attempt_id()) {
-              CB_ATTEMPT_CTX_LOG_DEBUG(self, "doc is in lost pending transaction");
+              CB_LOG_DEBUG("doc is in lost pending transaction",
+                           opentelemetry::common::MakeAttributes({
+                             { "transaction_id", self->transaction_id() },
+                             { "attempt_id", self->id() },
+                           }));
 
               if (doc->links().is_document_being_inserted()) {
                 // this document is being inserted, so should not be visible
@@ -3405,7 +3769,7 @@ attempt_context_impl::do_get(const core::document_id& id,
               self->cluster_ref(),
               doc_atr_id,
               [self, id, allow_replica, doc, cb = std::move(cb)](
-                std::error_code ec2, std::optional<active_transaction_record> atr) mutable {
+                std::error_code ec2, std::optional<active_transaction_record> atr) mutable -> auto {
                 if (!ec2 && atr) {
                   const active_transaction_record& atr_doc = atr.value();
                   std::optional<atr_entry> entry;
@@ -3449,9 +3813,13 @@ attempt_context_impl::do_get(const core::document_id& id,
                     }
                   } else {
                     // failed to get the ATR entry
-                    CB_ATTEMPT_CTX_LOG_DEBUG(self,
-                                             "could not get ATR entry, checking again with {}",
-                                             doc->links().staged_attempt_id().value_or("-"));
+                    CB_LOG_DEBUG(
+                      "could not get ATR entry, checking again with {staged_attempt_id}",
+                      opentelemetry::common::MakeAttributes({
+                        { "transaction_id", self->transaction_id() },
+                        { "attempt_id", self->id() },
+                        { "staged_attempt_id", doc->links().staged_attempt_id().value_or("-") },
+                      }));
                     return self->do_get(id, allow_replica, doc->links().staged_attempt_id(), cb);
                   }
                   if (ignore_doc) {
@@ -3463,9 +3831,13 @@ attempt_context_impl::do_get(const core::document_id& id,
                             transaction_get_result::create_from(*doc, content));
                 }
                 // failed to get the ATR
-                CB_ATTEMPT_CTX_LOG_DEBUG(self,
-                                         "could not get ATR, checking again with {}",
-                                         doc->links().staged_attempt_id().value_or("-"));
+                CB_LOG_DEBUG(
+                  "could not get ATR, checking again with {staged_attempt_id}",
+                  opentelemetry::common::MakeAttributes({
+                    { "transaction_id", self->transaction_id() },
+                    { "attempt_id", self->id() },
+                    { "staged_attempt_id", doc->links().staged_attempt_id().value_or("-") },
+                  }));
                 return self->do_get(id, allow_replica, doc->links().staged_attempt_id(), cb);
               });
           });
@@ -3486,10 +3858,16 @@ void
 execute_lookup(attempt_context_impl* ctx, LookupInRequest& req, Callback&& cb)
 {
   ctx->overall()->cluster_ref().execute(
-    req, [ctx, cb = std::forward<Callback>(cb)](const auto& resp) {
+    req, [ctx, cb = std::forward<Callback>(cb)](const auto& resp) -> auto {
       auto ec = error_class_from_response(resp);
       if (ec) {
-        CB_ATTEMPT_CTX_LOG_TRACE(ctx, "get_doc got error {} : {}", resp.ctx.ec().message(), *ec);
+        CB_LOG_TRACE("get_doc got error {error_message} : {error_class}",
+                     opentelemetry::common::MakeAttributes({
+                       { "transaction_id", ctx->transaction_id() },
+                       { "attempt_id", ctx->id() },
+                       { "error_message", resp.ctx.ec().message() },
+                       { "error_class", *ec },
+                     }));
         switch (*ec) {
           case FAIL_PATH_NOT_FOUND:
             return cb(ec,
@@ -3537,7 +3915,7 @@ attempt_context_impl::get_doc(const core::document_id& id,
       cluster_ref().with_bucket_configuration(
         id.bucket(),
         [this, id, specs, cb = std::move(cb)](
-          std::error_code ec, const std::shared_ptr<topology::configuration>& config) {
+          std::error_code ec, const std::shared_ptr<topology::configuration>& config) -> void {
           if (ec) {
             cb(FAIL_OTHER,
                std::nullopt,
@@ -3574,7 +3952,13 @@ attempt_context_impl::create_staged_insert_error_handler(const core::document_id
                                                          external_exception cause,
                                                          const std::string& message)
 {
-  CB_ATTEMPT_CTX_LOG_TRACE(this, "create_staged_insert got error class {}: {}", ec, message);
+  CB_LOG_TRACE("create_staged_insert got error class {error_class}: {error_message}",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", this->transaction_id() },
+                 { "attempt_id", this->id() },
+                 { "error_class", fmt::format("{}", ec) },
+                 { "error_message", message },
+               }));
   if (expiry_overtime_mode_.load()) {
     return op_completed_with_error(
       std::forward<Handler>(cb),
@@ -3590,7 +3974,11 @@ attempt_context_impl::create_staged_insert_error_handler(const core::document_id
         std::forward<Handler>(cb),
         transaction_operation_failed(ec, "transient error in insert").retry());
     case FAIL_AMBIGUOUS:
-      CB_ATTEMPT_CTX_LOG_DEBUG(this, "FAIL_AMBIGUOUS in create_staged_insert, retrying");
+      CB_LOG_DEBUG("FAIL_AMBIGUOUS in create_staged_insert, retrying",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", this->transaction_id() },
+                     { "attempt_id", this->id() },
+                   }));
       delay();
       return create_staged_insert(id, content, cas, delay, op_id, std::forward<Handler>(cb));
     case FAIL_OTHER:
@@ -3604,35 +3992,43 @@ attempt_context_impl::create_staged_insert_error_handler(const core::document_id
     case FAIL_DOC_ALREADY_EXISTS:
     case FAIL_CAS_MISMATCH: {
       // special handling for doc already existing
-      CB_ATTEMPT_CTX_LOG_DEBUG(this, "found existing doc {}, may still be able to insert", id);
+      CB_LOG_DEBUG("found existing doc {document_id}, may still be able to insert",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", this->transaction_id() },
+                     { "attempt_id", this->id() },
+                     { "document_id", fmt::format("{}", id) },
+                   }));
       auto error_handler =
         [self = shared_from_this(), id, op_id, content](
-          error_class ec2, const std::string& err_message, Handler&& cb) mutable {
-          CB_ATTEMPT_CTX_LOG_TRACE(self,
-                                   "after a CAS_MISMATCH or DOC_ALREADY_EXISTS, "
-                                   "then got error {} in create_staged_insert",
-                                   ec2);
-          if (self->expiry_overtime_mode_.load()) {
+          error_class ec2, const std::string& err_message, Handler&& cb) mutable -> auto {
+        CB_LOG_TRACE(
+          "after a CAS_MISMATCH or DOC_ALREADY_EXISTS, then got error {} in create_staged_insert",
+          opentelemetry::common::MakeAttributes({
+            { "transaction_id", self->transaction_id() },
+            { "attempt_id", self->id() },
+            { "error_class", fmt::format("{}", ec2) },
+          }));
+        if (self->expiry_overtime_mode_.load()) {
+          return self->op_completed_with_error(
+            std::move(cb),
+            transaction_operation_failed(FAIL_EXPIRY, "attempt timed out").expired());
+        }
+        switch (ec2) {
+          case FAIL_DOC_NOT_FOUND:
+          case FAIL_TRANSIENT:
             return self->op_completed_with_error(
               std::move(cb),
-              transaction_operation_failed(FAIL_EXPIRY, "attempt timed out").expired());
-          }
-          switch (ec2) {
-            case FAIL_DOC_NOT_FOUND:
-            case FAIL_TRANSIENT:
-              return self->op_completed_with_error(
-                std::move(cb),
-                transaction_operation_failed(
-                  ec2, fmt::format("error {} while handling existing doc in insert", err_message))
-                  .retry());
-            default:
-              return self->op_completed_with_error(
-                std::move(cb),
-                transaction_operation_failed(
-                  ec2,
-                  fmt::format("failed getting doc in create_staged_insert with {}", err_message)));
-          }
-        };
+              transaction_operation_failed(
+                ec2, fmt::format("error {} while handling existing doc in insert", err_message))
+                .retry());
+          default:
+            return self->op_completed_with_error(
+              std::move(cb),
+              transaction_operation_failed(
+                ec2,
+                fmt::format("failed getting doc in create_staged_insert with {}", err_message)));
+        }
+      };
       return hooks_.before_get_doc_in_exists_during_staged_insert(
         shared_from_this(),
         id.key(),
@@ -3642,7 +4038,7 @@ attempt_context_impl::create_staged_insert_error_handler(const core::document_id
          op_id,
          cb = std::forward<Handler>(cb),
          error_handler,
-         delay](auto ec) mutable {
+         delay](auto ec) mutable -> auto {
           if (ec) {
             return error_handler(*ec,
                                  fmt::format("before_get_doc_in_exists_during_"
@@ -3657,15 +4053,17 @@ attempt_context_impl::create_staged_insert_error_handler(const core::document_id
               std::optional<error_class> ec3,
               std::optional<external_exception> /* cause */,
               std::optional<std::string> err_message,
-              std::optional<transaction_get_result> doc) mutable {
+              std::optional<transaction_get_result> doc) mutable -> auto {
               if (!ec3) {
                 if (doc) {
-                  CB_ATTEMPT_CTX_LOG_DEBUG(
-                    self,
-                    "document {} exists, is_in_transaction {}, is_deleted {} ",
-                    doc->id(),
-                    doc->links().is_document_in_transaction(),
-                    doc->links().is_deleted());
+                  CB_LOG_DEBUG("document {document_id} exists",
+                               opentelemetry::common::MakeAttributes({
+                                 { "transaction_id", self->transaction_id() },
+                                 { "attempt_id", self->id() },
+                                 { "document_id", fmt::format("{}", doc->id()) },
+                                 { "is_in_transaction", doc->links().is_document_in_transaction() },
+                                 { "is_deleted", doc->links().is_deleted() },
+                               }));
 
                   if (auto err = check_forward_compat(
                         forward_compat_stage::WRITE_WRITE_CONFLICT_INSERTING_GET,
@@ -3676,18 +4074,25 @@ attempt_context_impl::create_staged_insert_error_handler(const core::document_id
                   if (!doc->links().is_document_in_transaction() && doc->links().is_deleted()) {
                     // it is just a deleted doc, so we are ok.  Let's try again,
                     // but with the cas
-                    CB_ATTEMPT_CTX_LOG_DEBUG(self,
-                                             "create staged insert found existing deleted doc, "
-                                             "retrying with cas {}",
-                                             doc->cas().value());
+                    CB_LOG_DEBUG(
+                      "create staged insert found existing deleted doc, retrying with cas {cas}",
+                      opentelemetry::common::MakeAttributes({
+                        { "transaction_id", self->transaction_id() },
+                        { "attempt_id", self->id() },
+                        { "cas", doc->cas().value() },
+                      }));
                     delay();
                     return self->create_staged_insert(
                       id, content, doc->cas().value(), delay, op_id, std::forward<Handler>(cb));
                   }
                   if (!doc->links().is_document_in_transaction()) {
                     // doc was inserted outside txn elsewhere
-                    CB_ATTEMPT_CTX_LOG_TRACE(
-                      self, "doc {} not in txn - was inserted outside txn", id);
+                    CB_LOG_TRACE("doc {id} not in txn - was inserted outside txn",
+                                 opentelemetry::common::MakeAttributes({
+                                   { "transaction_id", self->transaction_id() },
+                                   { "attempt_id", self->id() },
+                                   { "id", fmt::format("{}", id) },
+                                 }));
                     return self->op_completed_with_error(
                       std::forward<Handler>(cb),
                       document_exists({ couchbase::errc::transaction_op::document_exists,
@@ -3725,22 +4130,30 @@ attempt_context_impl::create_staged_insert_error_handler(const core::document_id
                     *doc,
                     forward_compat_stage::WRITE_WRITE_CONFLICT_INSERTING,
                     [self, id, op_id, content, doc, cb = std::forward<Handler>(cb), delay](
-                      std::optional<transaction_operation_failed> err) mutable {
+                      std::optional<transaction_operation_failed> err) mutable -> auto {
                       if (err) {
                         return self->op_completed_with_error(std::move(cb), *err);
                       }
-                      CB_ATTEMPT_CTX_LOG_DEBUG(self,
-                                               "doc ok to overwrite, retrying create_staged_insert "
-                                               "with cas {}",
-                                               doc->cas().value());
+                      CB_LOG_DEBUG(
+                        "doc ok to overwrite, retrying create_staged_insert with cas {cas}",
+                        opentelemetry::common::MakeAttributes({
+                          { "transaction_id", self->transaction_id() },
+                          { "attempt_id", self->id() },
+                          { "cas", doc->cas().value() },
+                        }));
                       delay();
                       return self->create_staged_insert(
                         id, content, doc->cas().value(), delay, op_id, std::forward<Handler>(cb));
                     });
                 } else {
                   // no doc now, just retry entire txn
-                  CB_ATTEMPT_CTX_LOG_TRACE(
-                    self, "got {} from get_doc in exists during staged insert", *ec3);
+                  CB_LOG_TRACE("got {error_class} from get_doc in exists during staged insert",
+                               opentelemetry::common::MakeAttributes({
+                                 { "transaction_id", self->transaction_id() },
+                                 { "attempt_id", self->id() },
+                                 { "error_class", *ec3 },
+                               }));
+
                   return self->op_completed_with_error(
                     std::move(cb),
                     transaction_operation_failed(FAIL_DOC_NOT_FOUND,
@@ -3782,9 +4195,10 @@ attempt_context_impl::create_staged_insert(const core::document_id& id,
                                               "create_staged_insert expired and not in overtime");
   }
 
-  auto ec = wait_for_hook([self = shared_from_this(), key = id.key()](auto handler) mutable {
-    return self->hooks_.before_staged_insert(self, key, std::move(handler));
-  });
+  auto ec =
+    wait_for_hook([self = shared_from_this(), key = id.key()](auto handler) mutable -> auto {
+      return self->hooks_.before_staged_insert(self, key, std::move(handler));
+    });
   if (ec) {
     return create_staged_insert_error_handler(id,
                                               std::move(content),
@@ -3796,7 +4210,13 @@ attempt_context_impl::create_staged_insert(const core::document_id& id,
                                               UNKNOWN,
                                               "before_staged_insert hook threw error");
   }
-  CB_ATTEMPT_CTX_LOG_DEBUG(this, "about to insert staged doc {} with cas {}", id, cas);
+  CB_LOG_DEBUG("about to insert staged doc {document_id} with cas {cas}",
+               opentelemetry::common::MakeAttributes({
+                 { "transaction_id", this->transaction_id() },
+                 { "attempt_id", this->id() },
+                 { "document_id", fmt::format("{}", id) },
+                 { "cas", cas },
+               }));
   core::operations::mutate_in_request req{ id };
   const bool binary =
     codec::codec_flags::has_common_flags(content.flags, codec::codec_flags::binary_common_flags);
@@ -3830,7 +4250,8 @@ attempt_context_impl::create_staged_insert(const core::document_id& id,
      cas,
      op_id,
      cb = std::forward<Handler>(cb),
-     delay = std::forward<Delay>(delay)](core::operations::mutate_in_response resp) mutable {
+     delay =
+       std::forward<Delay>(delay)](core::operations::mutate_in_response resp) mutable -> auto {
       if (auto ec = error_class_from_response(resp); ec) {
         return self->create_staged_insert_error_handler(id,
                                                         std::move(content),
@@ -3852,7 +4273,7 @@ attempt_context_impl::create_staged_insert(const core::document_id& id,
          op_id,
          cb = std::forward<Handler>(cb),
          delay = std::forward<Delay>(delay),
-         resp = std::move(resp)](auto ec) mutable {
+         resp = std::move(resp)](auto ec) mutable -> auto {
           if (ec) {
             auto msg =
               (resp.ctx.ec() ? resp.ctx.ec().message() : "after_staged_insert hook threw error");
@@ -3866,9 +4287,13 @@ attempt_context_impl::create_staged_insert(const core::document_id& id,
                                                             external_exception_from_response(resp),
                                                             msg);
           }
-
-          CB_ATTEMPT_CTX_LOG_DEBUG(
-            self, "inserted doc {} CAS={}, {}", id, resp.cas.value(), resp.ctx.ec().message());
+          CB_LOG_DEBUG("inserted doc {document_id}",
+                       opentelemetry::common::MakeAttributes({
+                         { "transaction_id", self->transaction_id() },
+                         { "attempt_id", self->id() },
+                         { "document_id", fmt::format("{}", id) },
+                         { "cas", resp.cas.value() },
+                       }));
 
           self->supports_replace_body_with_xattr(
             id.bucket(),
@@ -3879,7 +4304,7 @@ attempt_context_impl::create_staged_insert(const core::document_id& id,
              op_id,
              delay = std::forward<Delay>(delay),
              resp = std::move(resp),
-             cb = std::forward<Handler>(cb)](auto ec, bool supports) mutable {
+             cb = std::forward<Handler>(cb)](auto ec, bool supports) mutable -> auto {
               if (ec) {
                 return self->create_staged_insert_error_handler(
                   id,
@@ -3957,9 +4382,10 @@ attempt_context_impl::ensure_open_bucket(const std::string& bucket_name,
     CB_LOG_DEBUG("ensure_open_bucket called with empty bucket_name");
     return handler(couchbase::errc::common::bucket_not_found);
   }
-  cluster_ref().open_bucket(bucket_name, [handler = std::move(handler)](std::error_code ec) {
-    handler(ec);
-  });
+  cluster_ref().open_bucket(bucket_name,
+                            [handler = std::move(handler)](std::error_code ec) -> void {
+                              handler(ec);
+                            });
 }
 
 void
@@ -3970,7 +4396,7 @@ attempt_context_impl::supports_replace_body_with_xattr(
   cluster_ref().with_bucket_configuration(
     bucket_name,
     [handler = std::move(handler)](std::error_code ec,
-                                   const std::shared_ptr<topology::configuration>& config) {
+                                   const std::shared_ptr<topology::configuration>& config) -> void {
       if (ec) {
         handler(ec, {});
         return;
@@ -3990,7 +4416,7 @@ attempt_context_impl::remove(couchbase::transactions::transaction_get_result doc
                              couchbase::transactions::async_err_handler&& handler)
 {
   remove(transaction_get_result(doc),
-         [handler = std::move(handler)](const std::exception_ptr& e) mutable {
+         [handler = std::move(handler)](const std::exception_ptr& e) mutable -> void {
            wrap_err_callback_for_async_api(e, std::move(handler));
          });
 }
@@ -3999,7 +4425,7 @@ auto
 attempt_context_impl::remove(const couchbase::transactions::transaction_get_result& doc)
   -> couchbase::error
 {
-  return wrap_void_call_for_public_api([self = shared_from_this(), doc]() {
+  return wrap_void_call_for_public_api([self = shared_from_this(), doc]() -> void {
     self->remove(transaction_get_result(doc));
   });
 }
@@ -4026,14 +4452,15 @@ attempt_context_impl::get(const couchbase::collection& coll,
                           std::string id,
                           couchbase::transactions::async_result_handler&& handler)
 {
-  get_optional({ coll.bucket_name(), coll.scope_name(), coll.name(), std::move(id) },
-               [handler = std::move(handler)](const std::exception_ptr& err,
-                                              std::optional<transaction_get_result> res) mutable {
-                 if (!res) {
-                   return handler({ errc::transaction_op::document_not_found }, {});
-                 }
-                 return wrap_callback_for_async_public_api(err, std::move(res), std::move(handler));
-               });
+  get_optional(
+    { coll.bucket_name(), coll.scope_name(), coll.name(), std::move(id) },
+    [handler = std::move(handler)](const std::exception_ptr& err,
+                                   std::optional<transaction_get_result> res) mutable -> void {
+      if (!res) {
+        return handler({ errc::transaction_op::document_not_found }, {});
+      }
+      return wrap_callback_for_async_public_api(err, std::move(res), std::move(handler));
+    });
 }
 void
 attempt_context_impl::query(std::string statement,
@@ -4041,40 +4468,41 @@ attempt_context_impl::query(std::string statement,
                             std::optional<std::string> query_context,
                             couchbase::transactions::async_query_handler&& handler)
 {
-  query(statement,
-        opts,
-        query_context,
-        [handler = std::move(handler)](const std::exception_ptr& err,
-                                       std::optional<core::operations::query_response> resp) {
-          if (err) {
-            try {
-              std::rethrow_exception(err);
-            } catch (const transaction_operation_failed& e) {
-              return handler(core::impl::make_error(e), {});
-            } catch (const op_exception& ex) {
-              return handler(core::impl::make_error(ex), {});
-            } catch (...) {
-              // just in case...
-              return handler({ couchbase::errc::transaction_op::generic }, {});
-            }
-          }
-          auto [ctx, res] = core::impl::build_transaction_query_result(*resp);
-          if (ctx.ec()) {
-            // This should have already been converted to an exception by handle_query_error,
-            // which we handle above. Let's return an error here just in case
-            std::string msg = "Txns query error occured that should have been handled further "
-                              "upstream, which might indicate a bug.";
-            if (std::holds_alternative<query_error_context>(ctx.cause())) {
-              return handler({ ctx.ec(),
-                               std::move(msg),
-                               {},
-                               impl::make_error(std::get<query_error_context>(ctx.cause())) },
-                             {});
-            }
-            return handler({ ctx.ec(), std::move(msg) }, {});
-          }
-          return handler({}, res);
-        });
+  query(
+    statement,
+    opts,
+    query_context,
+    [handler = std::move(handler)](const std::exception_ptr& err,
+                                   std::optional<core::operations::query_response> resp) -> void {
+      if (err) {
+        try {
+          std::rethrow_exception(err);
+        } catch (const transaction_operation_failed& e) {
+          return handler(core::impl::make_error(e), {});
+        } catch (const op_exception& ex) {
+          return handler(core::impl::make_error(ex), {});
+        } catch (...) {
+          // just in case...
+          return handler({ couchbase::errc::transaction_op::generic }, {});
+        }
+      }
+      auto [ctx, res] = core::impl::build_transaction_query_result(*resp);
+      if (ctx.ec()) {
+        // This should have already been converted to an exception by handle_query_error,
+        // which we handle above. Let's return an error here just in case
+        std::string msg = "Txns query error occured that should have been handled further "
+                          "upstream, which might indicate a bug.";
+        if (std::holds_alternative<query_error_context>(ctx.cause())) {
+          return handler({ ctx.ec(),
+                           std::move(msg),
+                           {},
+                           impl::make_error(std::get<query_error_context>(ctx.cause())) },
+                         {});
+        }
+        return handler({ ctx.ec(), std::move(msg) }, {});
+      }
+      return handler({}, res);
+    });
 }
 
 void
@@ -4092,20 +4520,31 @@ attempt_context_impl::handle_err_from_callback(const std::exception_ptr& e)
   try {
     std::rethrow_exception(e);
   } catch (const transaction_operation_failed& ex) {
-    CB_ATTEMPT_CTX_LOG_ERROR(
-      this, "op callback called a txn operation that threw exception {}", ex.what());
+    CB_LOG_ERROR("op callback called a txn operation that threw exception",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                   { "error_message", ex.what() },
+                 }));
     op_list_.decrement_ops();
     // presumably that op called op_completed_with_error already, so
     // don't do anything here but swallow it.
   } catch (const async_operation_conflict& op_ex) {
     // the count isn't changed when this is thrown, so just swallow it and log
-    CB_ATTEMPT_CTX_LOG_ERROR(
-      this, "op callback called a txn operation that threw exception {}", op_ex.what());
+    CB_LOG_ERROR("op callback called a txn operation that threw exception",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                   { "error_message", op_ex.what() },
+                 }));
   } catch (const op_exception& op_ex) {
-    CB_ATTEMPT_CTX_LOG_WARNING(this,
-                               "op callback called a txn operation that "
-                               "threw (and didn't handle) a op_exception {}",
-                               op_ex.what());
+    CB_LOG_WARNING(
+      "op callback called a txn operation that threw (and didn't handle) a op_exception",
+      opentelemetry::common::MakeAttributes({
+        { "transaction_id", this->transaction_id() },
+        { "attempt_id", this->id() },
+        { "error_message", op_ex.what() },
+      }));
     errors_.push_back(
       transaction_operation_failed(error_class_from_external_exception(op_ex.cause()), op_ex.what())
         .cause(op_ex.cause()));
@@ -4113,12 +4552,21 @@ attempt_context_impl::handle_err_from_callback(const std::exception_ptr& e)
   } catch (const std::exception& std_ex) {
     // if the callback throws something which wasn't handled
     // we just want to handle as a rollback
-    CB_ATTEMPT_CTX_LOG_ERROR(this, "op callback threw exception {}", std_ex.what());
+    CB_LOG_ERROR("op callback threw exception",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                   { "error_message", std_ex.what() },
+                 }));
     errors_.push_back(transaction_operation_failed(FAIL_OTHER, std_ex.what()));
     op_list_.decrement_ops();
   } catch (...) {
     // could be something really arbitrary, still...
-    CB_ATTEMPT_CTX_LOG_ERROR(this, "op callback threw unexpected exception");
+    CB_LOG_ERROR("op callback threw unexpected exception",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", this->transaction_id() },
+                   { "attempt_id", this->id() },
+                 }));
     errors_.push_back(transaction_operation_failed(FAIL_OTHER, "unexpected error"));
     op_list_.decrement_ops();
   }

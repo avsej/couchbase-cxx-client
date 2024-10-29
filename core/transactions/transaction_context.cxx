@@ -19,14 +19,15 @@
 
 #include "core/transactions.hxx"
 #include "exceptions_fmt.hxx"
-#include "internal/logging.hxx"
 #include "internal/transaction_attempt.hxx"
 #include "internal/transaction_context.hxx"
 #include "internal/transactions_cleanup.hxx"
 #include "internal/utils.hxx"
+#include "observability/logger.hxx"
 
 #include <asio/post.hpp>
 #include <asio/steady_timer.hpp>
+#include <spdlog/fmt/bundled/chrono.h>
 #include <utility>
 
 namespace couchbase::core::transactions
@@ -108,17 +109,17 @@ transaction_context::has_expired_client_side() -> bool
   auto expired_millis = std::chrono::duration_cast<std::chrono::milliseconds>(expired_nanos);
   const bool is_expired = expired_nanos > config_.timeout;
   if (is_expired) {
-    CB_ATTEMPT_CTX_LOG_INFO(
-      current_attempt_context_,
-      "has expired client side (now={}ns, start={}ns, deferred_elapsed={}ns, "
-      "expired={}ns ({}ms), "
-      "config={}ms)",
-      now.time_since_epoch().count(),
-      start_time_client_.time_since_epoch().count(),
-      deferred_elapsed_.count(),
-      expired_nanos.count(),
-      expired_millis.count(),
-      std::chrono::duration_cast<std::chrono::milliseconds>(config_.timeout).count());
+    CB_LOG_INFO("has expired client",
+                opentelemetry::common::MakeAttributes({
+                  { "transaction_id", current_attempt_context_->transaction_id() },
+                  { "attempt_id", current_attempt_context_->id() },
+                  { "now", fmt::format("{}", now.time_since_epoch()) },
+                  { "start", fmt::format("{}", start_time_client_.time_since_epoch()) },
+                  { "deferred_elapsed", fmt::format("{}", deferred_elapsed_) },
+                  { "expired_ns", fmt::format("{}", expired_nanos) },
+                  { "expired_ms", fmt::format("{}", expired_millis) },
+                  { "config", fmt::format("{}", config_.timeout) },
+                }));
   }
   return is_expired;
 }
@@ -128,7 +129,7 @@ transaction_context::after_delay(std::chrono::milliseconds delay, const std::fun
 {
   auto timer = std::make_shared<asio::steady_timer>(this->transactions_.cluster_ref().io_context());
   timer->expires_after(delay);
-  timer->async_wait([timer, fn](std::error_code) {
+  timer->async_wait([timer, fn](std::error_code) -> void {
     // have to always call the function, even if timer was canceled.
     fn();
   });
@@ -138,17 +139,20 @@ void
 transaction_context::new_attempt_context(async_attempt_context::VoidCallback&& cb)
 {
   asio::post(transactions_.cluster_ref().io_context(),
-             [self = shared_from_this(), cb = std::move(cb)]() {
+             [self = shared_from_this(), cb = std::move(cb)]() -> void {
                // the first time we call the delay, it just records an end time.  After
                // that, it actually delays.
                try {
                  (*self->delay_)();
                  self->current_attempt_context_ = attempt_context_impl::create(self);
-                 CB_ATTEMPT_CTX_LOG_INFO(self->current_attempt_context_,
-                                         "starting attempt {}/{}/{}/",
-                                         self->num_attempts(),
-                                         self->transaction_id(),
-                                         self->current_attempt_context_->id());
+                 CB_LOG_INFO(
+                   "starting attempt",
+                   opentelemetry::common::MakeAttributes({
+                     { "current_transaction_id", self->current_attempt_context_->transaction_id() },
+                     { "current_attempt_id", self->current_attempt_context_->id() },
+                     { "transaction_id", self->transaction_id() },
+                   }));
+
                  cb(nullptr);
                } catch (...) {
                  cb(std::current_exception());
@@ -307,24 +311,34 @@ transaction_context::handle_error(const std::exception_ptr& err, txn_complete_ca
       throw transaction_operation_failed(FAIL_OTHER, e.what()).cause(e.cause());
     }
   } catch (const transaction_operation_failed& er) {
-    CB_ATTEMPT_CTX_LOG_ERROR(current_attempt_context_,
-                             "got transaction_operation_failed {}, cause={}, retry={}, rollback={}",
-                             er.what(),
-                             er.cause(),
-                             er.should_retry(),
-                             er.should_rollback());
+    CB_LOG_ERROR("got transaction_operation_failed {error_message}",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", current_attempt_context_->transaction_id() },
+                   { "attempt_id", current_attempt_context_->id() },
+                   { "error_message", er.what() },
+                   { "cause", er.cause() },
+                   { "should_retry", er.should_retry() },
+                   { "should_rollback", er.should_rollback() },
+                 }));
+
     if (er.should_rollback()) {
-      CB_ATTEMPT_CTX_LOG_TRACE(current_attempt_context_,
-                               "got rollback-able exception, rolling back");
+      CB_LOG_TRACE("got rollback-able exception, rolling back",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", current_attempt_context_->transaction_id() },
+                     { "attempt_id", current_attempt_context_->id() },
+                   }));
       try {
         current_attempt_context_->rollback();
       } catch (const std::exception& er_rollback) {
         cleanup().add_attempt(current_attempt_context_);
-        CB_ATTEMPT_CTX_LOG_TRACE(
-          current_attempt_context_,
-          "got error \"{}\" while auto rolling back, throwing original error",
-          er_rollback.what(),
-          er.what());
+        CB_LOG_TRACE("got error \"{rollback_error_message}\" while auto rolling back, throwing "
+                     "original error {original_error_message}",
+                     opentelemetry::common::MakeAttributes({
+                       { "transaction_id", current_attempt_context_->transaction_id() },
+                       { "attempt_id", current_attempt_context_->id() },
+                       { "rollback_error_message", er_rollback.what() },
+                       { "original_error_message", er.what() },
+                     }));
         auto final = er.get_final_exception(*this);
         // if you get here, we didn't throw, yet we had an error.  Fall through
         // in this case.  Note the current logic is such that rollback will not
@@ -333,8 +347,11 @@ transaction_context::handle_error(const std::exception_ptr& err, txn_complete_ca
         return callback(final, std::nullopt);
       }
       if (er.should_retry() && has_expired_client_side()) {
-        CB_ATTEMPT_CTX_LOG_TRACE(current_attempt_context_,
-                                 "auto rollback succeeded, however we are expired so no retry");
+        CB_LOG_TRACE("auto rollback succeeded, however we are expired so no retry",
+                     opentelemetry::common::MakeAttributes({
+                       { "transaction_id", current_attempt_context_->transaction_id() },
+                       { "attempt_id", current_attempt_context_->id() },
+                     }));
 
         return callback(transaction_operation_failed(FAIL_EXPIRY, "expired in auto rollback")
                           .no_rollback()
@@ -344,7 +361,11 @@ transaction_context::handle_error(const std::exception_ptr& err, txn_complete_ca
       }
     }
     if (er.should_retry()) {
-      CB_ATTEMPT_CTX_LOG_TRACE(current_attempt_context_, "got retryable exception, retrying");
+      CB_LOG_TRACE("got retryable exception, retrying",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", current_attempt_context_->transaction_id() },
+                     { "attempt_id", current_attempt_context_->id() },
+                   }));
       cleanup().add_attempt(current_attempt_context_);
       return callback(std::nullopt, std::nullopt);
     }
@@ -358,12 +379,21 @@ transaction_context::handle_error(const std::exception_ptr& err, txn_complete_ca
     }
     return callback(final, res);
   } catch (const std::exception& ex) {
-    CB_ATTEMPT_CTX_LOG_ERROR(current_attempt_context_, "got runtime error \"{}\"", ex.what());
+    CB_LOG_ERROR("got runtime error \"{error_message}\"",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", current_attempt_context_->transaction_id() },
+                   { "attempt_id", current_attempt_context_->id() },
+                   { "error_message", ex.what() },
+                 }));
     try {
       current_attempt_context_->rollback();
     } catch (...) {
-      CB_ATTEMPT_CTX_LOG_ERROR(
-        current_attempt_context_, "got error rolling back \"{}\"", ex.what());
+      CB_LOG_ERROR("got error rolling back \"{error_message}\"",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", current_attempt_context_->transaction_id() },
+                     { "attempt_id", current_attempt_context_->id() },
+                     { "error_message", ex.what() },
+                   }));
     }
     cleanup().add_attempt(current_attempt_context_);
     // the assumption here is this must come from the logic, not
@@ -371,11 +401,19 @@ transaction_context::handle_error(const std::exception_ptr& err, txn_complete_ca
     auto op_failed = transaction_operation_failed(FAIL_OTHER, ex.what());
     return callback(op_failed.get_final_exception(*this), std::nullopt);
   } catch (...) {
-    CB_ATTEMPT_CTX_LOG_ERROR(current_attempt_context_, "got unexpected error, rolling back");
+    CB_LOG_ERROR("got unexpected error, rolling back",
+                 opentelemetry::common::MakeAttributes({
+                   { "transaction_id", current_attempt_context_->transaction_id() },
+                   { "attempt_id", current_attempt_context_->id() },
+                 }));
     try {
       current_attempt_context_->rollback();
     } catch (...) {
-      CB_ATTEMPT_CTX_LOG_ERROR(current_attempt_context_, "got error rolling back unexpected error");
+      CB_LOG_ERROR("got error rolling back unexpected error",
+                   opentelemetry::common::MakeAttributes({
+                     { "transaction_id", current_attempt_context_->transaction_id() },
+                     { "attempt_id", current_attempt_context_->id() },
+                   }));
     }
     cleanup().add_attempt(current_attempt_context_);
     // the assumption here is this must come from the logic, not
@@ -394,7 +432,8 @@ transaction_context::finalize(txn_complete_callback&& cb)
     if (current_attempt_context_->is_done()) {
       return cb(std::nullopt, get_transaction_result());
     }
-    commit([self = shared_from_this(), cb = std::move(cb)](const std::exception_ptr& err) mutable {
+    commit([self = shared_from_this(),
+            cb = std::move(cb)](const std::exception_ptr& err) mutable -> void {
       if (err) {
         return self->handle_error(err, std::move(cb));
       }
@@ -476,7 +515,7 @@ transaction_context::new_attempt_context()
 {
   auto barrier = std::make_shared<std::promise<void>>();
   auto f = barrier->get_future();
-  new_attempt_context([barrier](const std::exception_ptr& err) {
+  new_attempt_context([barrier](const std::exception_ptr& err) -> void {
     if (err) {
       return barrier->set_exception(err);
     }
