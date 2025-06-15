@@ -1885,12 +1885,13 @@ private:
                    log_prefix_,
                    connection_endpoints_.remote_address,
                    connection_endpoints_.remote.port());
-      log_prefix_ = fmt::format("[{}/{}/{}/{}] <{}/{}:{}>",
+      log_prefix_ = fmt::format("[{}/{}/{}/{}] <{}/{}:{}:{}>",
                                 client_id_,
                                 id_,
                                 stream_->log_prefix(),
                                 bucket_name_.value_or("-"),
                                 bootstrap_hostname_,
+                                connection_endpoints_.local.port(),
                                 connection_endpoints_.remote_address,
                                 connection_endpoints_.remote.port());
       parser_.reset();
