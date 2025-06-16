@@ -25,6 +25,8 @@
 #include <spdlog/fmt/bundled/core.h>
 
 #include <tao/json.hpp>
+
+#include <random>
 #include <utility>
 
 namespace tao::json
@@ -338,12 +340,17 @@ couchbase::core::origin::origin(couchbase::core::cluster_credentials auth,
                                 const couchbase::core::utils::connection_string& connstr)
   : options_(connstr.options)
   , credentials_(std::move(auth))
+  , connection_string_(connstr.input)
 {
   nodes_.reserve(connstr.bootstrap_nodes.size());
   for (const auto& node : connstr.bootstrap_nodes) {
     nodes_.emplace_back(node.address,
                         node.port > 0 ? std::to_string(node.port)
                                       : std::to_string(connstr.default_port));
+  }
+  if (!options_.preserve_bootstrap_nodes_order) {
+    static thread_local std::default_random_engine gen{ std::random_device{}() };
+    std::shuffle(nodes_.begin(), nodes_.end(), gen);
   }
   next_node_ = nodes_.begin();
 }
@@ -358,6 +365,11 @@ couchbase::core::origin::operator=(const couchbase::core::origin& other) -> couc
     exhausted_ = false;
   }
   return *this;
+}
+auto
+couchbase::core::origin::connection_string() const -> const std::string&
+{
+  return connection_string_;
 }
 auto
 couchbase::core::origin::username() const -> const std::string&
@@ -403,6 +415,10 @@ void
 couchbase::core::origin::set_nodes(couchbase::core::origin::node_list nodes)
 {
   nodes_ = std::move(nodes);
+  if (!options_.preserve_bootstrap_nodes_order) {
+    static thread_local std::default_random_engine gen{ std::random_device{}() };
+    std::shuffle(nodes_.begin(), nodes_.end(), gen);
+  }
   next_node_ = nodes_.begin();
   exhausted_ = false;
 }
