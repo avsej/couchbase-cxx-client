@@ -20,7 +20,6 @@
 #include <couchbase/retry_reason.hxx>
 #include <couchbase/retry_strategy.hxx>
 
-#include <chrono>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -32,7 +31,8 @@ template<bool is_idempotent>
 class retry_context : public retry_request
 {
 public:
-  retry_context(std::shared_ptr<retry_strategy> strategy = nullptr, std::string identifier = {})
+  retry_context(std::shared_ptr<retry_strategy> strategy = nullptr,
+                         std::string identifier = {})
     : identifier_{ std::move(identifier) }
     , strategy_{ std::move(strategy) }
   {

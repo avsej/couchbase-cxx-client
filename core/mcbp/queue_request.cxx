@@ -16,12 +16,16 @@
  */
 
 #include "queue_request.hxx"
-#include "../operation_map.hxx"
-#include "core/logger/logger.hxx"
+
+#include "core/mcbp/command_code.hxx"
+#include "core/operation_map.hxx"
+#include "core/utils/binary.hxx"
 #include "operation_queue.hxx"
 #include "queue_response.hxx"
 
 #include <couchbase/error_codes.hxx>
+
+#include <spdlog/fmt/bundled/core.h>
 
 #include <atomic>
 
@@ -176,5 +180,63 @@ auto
 queue_request::retry_strategy() const -> std::shared_ptr<couchbase::retry_strategy>
 {
   return retry_strategy_;
+}
+
+auto
+queue_request::scope_name() const -> const std::string&
+{
+  return scope_name_;
+}
+
+auto
+queue_request::collection_name() const -> const std::string&
+{
+  return collection_name_;
+}
+
+namespace
+{
+constexpr auto default_scope_name{ "_default" };
+constexpr auto default_collection_name{ "_default" };
+} // namespace
+
+void
+queue_request::collection(const std::string& scope_name, const std::string& collection_name)
+{
+  scope_name_ = scope_name.empty() ? default_scope_name : scope_name;
+  collection_name_ = collection_name.empty() ? default_collection_name : collection_name;
+}
+
+void
+queue_request::id(const std::string& scope_name,
+                  const std::string& collection_name,
+                  const std::string& key)
+{
+  collection(scope_name, collection_name);
+  key_ = utils::to_binary(key);
+}
+
+auto
+queue_request::is_collection_unset() const -> bool
+{
+  return collection_name_.empty() && scope_name_.empty();
+}
+
+auto
+queue_request::is_default_collection() const -> bool
+{
+  return collection_name_ == default_collection_name && scope_name_ == default_scope_name;
+}
+
+auto
+queue_request::has_collection_id() const -> bool
+{
+  return collection_id_ > 0;
+}
+
+auto
+queue_request::collection_path() const -> std::string
+{
+  return fmt::format("{}.{}", scope_name_, collection_name_);
 }
 } // namespace couchbase::core::mcbp

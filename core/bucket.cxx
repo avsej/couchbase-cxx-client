@@ -118,8 +118,8 @@ public:
   {
     // TODO(SA): copy from mcbp_command, subject to refactor later
     metrics::metric_attributes attrs{
-      service_type::key_value, fmt::format("{}", req->command_), ec, name_, req->scope_name_,
-      req->collection_name_,
+      service_type::key_value, fmt::format("{}", req->command_), ec, name_, req->scope_name(),
+      req->collection_name(),
     };
     meter_->record_value(std::move(attrs), req->dispatched_time_);
 

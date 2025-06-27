@@ -143,8 +143,8 @@ public:
   auto stats(const stats_options& options, stats_callback&& callback)
     -> tl::expected<std::shared_ptr<pending_operation>, std::error_code>;
 
-  auto get_collection_id(std::string scope_name,
-                         std::string collection_name,
+  auto get_collection_id(const std::string& scope_name,
+                         const std::string& collection_name,
                          const get_collection_id_options& options,
                          get_collection_id_callback callback)
     -> tl::expected<std::shared_ptr<pending_operation>, std::error_code>;

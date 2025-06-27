@@ -223,10 +223,10 @@ class mcbp_session_impl
     impl::bootstrap_error last_bootstrap_error_;
 
   public:
-    bootstrap_handler(const bootstrap_handler&) = delete;
-    auto operator=(const bootstrap_handler&) -> bootstrap_handler& = delete;
     bootstrap_handler(bootstrap_handler&&) = delete;
+    bootstrap_handler(const bootstrap_handler&) = delete;
     auto operator=(bootstrap_handler&&) -> bootstrap_handler& = delete;
+    auto operator=(const bootstrap_handler&) -> bootstrap_handler& = delete;
 
     ~bootstrap_handler()
     {

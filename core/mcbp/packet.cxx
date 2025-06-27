@@ -17,8 +17,10 @@
 
 #include "packet.hxx"
 
-#include "../protocol/client_opcode_fmt.hxx"
-#include "../protocol/magic_fmt.hxx"
+#include "core/protocol/status.hxx"
+#include "core/protocol/magic.hxx"
+#include "core/protocol/client_opcode_fmt.hxx"
+#include "core/protocol/magic_fmt.hxx"
 
 #include "core/fmt/key_value_status_code.hxx"
 

@@ -212,7 +212,7 @@ public:
      * We cannot retry requests with no collection information.
      * This also prevents the GetCollectionID requests from being automatically retried.
      */
-    if (request->scope_name_.empty() || request->collection_name_.empty()) {
+    if (request->scope_name().empty() || request->collection_name().empty()) {
       return false;
     }
 
@@ -235,8 +235,8 @@ public:
 
   void re_queue(const std::shared_ptr<mcbp::queue_request>& request)
   {
-    auto cache_entry =
-      get_and_maybe_insert(request->scope_name_, request->collection_name_, unknown_collection_id);
+    auto cache_entry = get_and_maybe_insert(
+      request->scope_name(), request->collection_name(), unknown_collection_id);
 
     cache_entry->reset_id();
 
@@ -245,8 +245,8 @@ public:
     }
   }
 
-  [[nodiscard]] auto get_collection_id(std::string scope_name,
-                                       std::string collection_name,
+  [[nodiscard]] auto get_collection_id(const std::string& scope_name,
+                                       const std::string& collection_name,
                                        const get_collection_id_options& options,
                                        get_collection_id_callback&& callback)
     -> tl::expected<std::shared_ptr<pending_operation>, std::error_code>
@@ -262,7 +262,7 @@ public:
       const std::uint64_t manifest_id = mcbp::big_endian::read_uint64(response->extras_, 0);
       const std::uint32_t collection_id = mcbp::big_endian::read_uint32(response->extras_, 8);
 
-      self->upsert(request->scope_name_, request->collection_name_, collection_id);
+      self->upsert(request->scope_name(), request->collection_name(), collection_id);
 
       return cb(get_collection_id_result{ manifest_id, collection_id }, {});
     };
@@ -271,10 +271,8 @@ public:
       couchbase::core::protocol::magic::client_request,
       couchbase::core::protocol::client_opcode::get_collection_id,
       std::move(handler));
-    req->scope_name_ = scope_name.empty() ? scope::default_name : std::move(scope_name);
-    req->collection_name_ =
-      collection_name.empty() ? collection::default_name : std::move(collection_name);
-    req->value_ = utils::to_binary(fmt::format("{}.{}", req->scope_name_, req->collection_name_));
+    req->collection(scope_name, collection_name);
+    req->value_ = utils::to_binary(req->collection_path());
     req->retry_strategy_ =
       options.retry_strategy ? options.retry_strategy : default_retry_strategy_;
 
@@ -311,19 +309,16 @@ public:
   auto dispatch(std::shared_ptr<mcbp::queue_request> request)
     -> tl::expected<std::shared_ptr<pending_operation>, std::error_code>
   {
-    if ((request->collection_id_ > 0) // collection id present
-        || (request->collection_name_.empty() && request->scope_name_.empty()) // no collection
-        || (request->collection_name_ == collection::default_name &&
-            request->scope_name_ == scope::default_name) // default collection
-    ) {
+    if (request->has_collection_id() || request->is_collection_unset() ||
+        request->is_default_collection()) {
       if (auto ec = dispatcher_.direct_dispatch(request); ec) {
         return tl::unexpected(ec);
       }
       return request;
     }
 
-    auto cache_entry =
-      get_and_maybe_insert(request->scope_name_, request->collection_name_, unknown_collection_id);
+    auto cache_entry = get_and_maybe_insert(
+      request->scope_name(), request->collection_name(), unknown_collection_id);
     if (auto ec = cache_entry->dispatch(request); ec) {
       return tl::unexpected(ec);
     }
@@ -350,8 +345,7 @@ collection_id_cache_entry_impl::dispatch(std::shared_ptr<mcbp::queue_request> re
    */
   switch (const std::scoped_lock lock(mutex_); id_) {
     case unknown_collection_id:
-      CB_LOG_DEBUG(
-        "collection {}.{} unknown. refreshing id", req->scope_name_, req->collection_id_);
+      CB_LOG_DEBUG("collection {:?} unknown. refreshing id", req->collection_path());
       id_ = pending_collection_id;
 
       if (auto ec = refresh_collection_id(req); ec) {
@@ -361,8 +355,8 @@ collection_id_cache_entry_impl::dispatch(std::shared_ptr<mcbp::queue_request> re
       return {};
 
     case pending_collection_id:
-      CB_LOG_DEBUG("collection {}.{} pending. queueing request OP={}",
-                   req->scope_name_,
+      CB_LOG_DEBUG("collection {:?} pending. queueing request OP={}",
+                   req->collection_path(),
                    req->collection_id_,
                    req->command_);
       return queue_->push(req, max_queue_size_);
@@ -372,9 +366,8 @@ collection_id_cache_entry_impl::dispatch(std::shared_ptr<mcbp::queue_request> re
   }
 
   if (auto ec = assign_collection_id(req); ec) {
-    CB_LOG_DEBUG("failed to set collection ID \"{}.{}\" on request (OP={}): {}",
-                 req->scope_name_,
-                 req->collection_name_,
+    CB_LOG_DEBUG("failed to set collection ID {:?} on request (OP={}): {}",
+                 req->collection_path(),
                  req->command_,
                  ec.message());
     return ec;
@@ -391,10 +384,10 @@ collection_id_cache_entry_impl::refresh_collection_id(
     return ec;
   }
 
-  CB_LOG_DEBUG("refreshing collection ID for \"{}.{}\"", req->scope_name_, req->collection_name_);
+  CB_LOG_DEBUG("refreshing collection ID for {:?}", req->collection_path());
   auto op = manager_.lock()->get_collection_id(
-    req->scope_name_,
-    req->collection_name_,
+    req->scope_name(),
+    req->collection_name(),
     get_collection_id_options{},
     [self = shared_from_this(), req](get_collection_id_result res, std::error_code ec) {
       if (ec) {
@@ -404,9 +397,7 @@ collection_id_cache_entry_impl::refresh_collection_id(
           // up the unknown cid and cause a refresh or another request will and this one will get
           // queued within the cache. Either the collection will eventually come online or this
           // request will time out.
-          CB_LOG_DEBUG("collection \"{}.{}\" not found, attempting retry",
-                       req->scope_name_,
-                       req->collection_name_);
+          CB_LOG_DEBUG("collection {:?} not found, attempting retry", req->collection_path());
           self->set_id(unknown_collection_id);
           if (self->queue_->remove(req)) {
             if (self->manager_.lock()->handle_collection_unknown(req)) {
@@ -414,19 +405,19 @@ collection_id_cache_entry_impl::refresh_collection_id(
             }
           } else {
             CB_LOG_DEBUG("request no longer existed in op queue, possibly cancelled?, opaque={}, "
-                         "collection_name=\"{}\"",
+                         "collection_name={:?}",
                          req->opaque_,
-                         req->collection_name_);
+                         req->collection_path());
           }
         } else {
-          CB_LOG_DEBUG("collection id refresh failed: {}, opaque={}, collection_name=\"{}\"",
+          CB_LOG_DEBUG("collection id refresh failed: {}, opaque={}, collection_name={:?}",
                        ec.message(),
                        req->opaque_,
-                       req->collection_name_);
+                       req->collection_path());
         }
         // There was an error getting this collection ID so lets remove the cache from the manager
         // and try to callback on all the queued requests.
-        self->manager_.lock()->remove(req->scope_name_, req->collection_name_);
+        self->manager_.lock()->remove(req->scope_name(), req->collection_name());
         auto queue = self->swap_queue();
         queue->close();
         return queue->drain([ec](const auto& r) {
@@ -436,17 +427,15 @@ collection_id_cache_entry_impl::refresh_collection_id(
 
       // We successfully got the cid, the GetCollectionID itself will have handled setting the ID on
       // this cache, so lets reset the op queue and requeue all of our requests.
-      CB_LOG_DEBUG("collection \"{}.{}\" refresh succeeded cid={}, re-queuing requests",
-                   req->scope_name_,
-                   req->collection_name_,
+      CB_LOG_DEBUG("collection {:?} refresh succeeded cid={}, re-queuing requests",
+                   req->collection_path(),
                    res.collection_id);
       auto queue = self->swap_queue();
       queue->close();
       return queue->drain([self](const auto& r) {
         if (auto ec = self->assign_collection_id(r); ec) {
-          CB_LOG_DEBUG("failed to set collection ID \"{}.{}\" on request (OP={}): {}",
-                       r->scope_name_,
-                       r->collection_name_,
+          CB_LOG_DEBUG("failed to set collection ID {:?} on request (OP={}): {}",
+                       r->collection_path(),
                        r->command_,
                        ec.message());
           return;
@@ -473,14 +462,13 @@ collections_component::collections_component(asio::io_context& io,
 }
 
 auto
-collections_component::get_collection_id(std::string scope_name,
-                                         std::string collection_name,
+collections_component::get_collection_id(const std::string& scope_name,
+                                         const std::string& collection_name,
                                          const get_collection_id_options& options,
                                          get_collection_id_callback callback)
   -> tl::expected<std::shared_ptr<pending_operation>, std::error_code>
 {
-  return impl_->get_collection_id(
-    std::move(scope_name), std::move(collection_name), options, std::move(callback));
+  return impl_->get_collection_id(scope_name, collection_name, options, std::move(callback));
 }
 
 auto

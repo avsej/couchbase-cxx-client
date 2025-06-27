@@ -20,7 +20,13 @@ namespace couchbase::core
 class pending_operation
 {
 public:
+  pending_operation() = default;
+  pending_operation(const pending_operation&) = default;
+  pending_operation(pending_operation&&) = delete;
+  auto operator=(const pending_operation&) -> pending_operation& = default;
+  auto operator=(pending_operation&&) -> pending_operation& = delete;
   virtual ~pending_operation() = default;
+
   virtual void cancel() = 0;
 };
 } // namespace couchbase::core

@@ -17,10 +17,10 @@
 
 #pragma once
 
-#include "../protocol/magic.hxx"
-#include "../protocol/status.hxx"
 #include "barrier_frame.hxx"
-#include "command_code.hxx"
+#include "core/error_context/key_value_status_code.hxx"
+#include "core/protocol/client_opcode.hxx"
+#include "core/protocol/magic.hxx"
 #include "durability_level_frame.hxx"
 #include "durability_timeout_frame.hxx"
 #include "open_tracing_frame.hxx"
@@ -38,9 +38,7 @@
 
 namespace couchbase::core::mcbp
 {
-class packet
-{
-public:
+struct packet {
   [[nodiscard]] auto debug_string() const -> std::string;
 
   protocol::magic magic_;

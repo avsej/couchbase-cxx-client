@@ -48,6 +48,10 @@ class queue_request
 {
 public:
   queue_request(protocol::magic magic, protocol::client_opcode opcode, queue_callback&& callback);
+  queue_request(const queue_request&) = delete;
+  queue_request(queue_request&&) = delete;
+  auto operator=(const queue_request&) -> queue_request& = delete;
+  auto operator=(queue_request&&) -> queue_request& = delete;
   ~queue_request() override = default;
 
   [[nodiscard]] auto retry_attempts() const -> std::size_t override;
@@ -70,8 +74,18 @@ public:
   void set_deadline(std::shared_ptr<asio::steady_timer> timer);
   void set_retry_backoff(std::shared_ptr<asio::steady_timer> timer);
 
-  std::string collection_name_{};
-  std::string scope_name_{};
+  [[nodiscard]] auto collection_path() const -> std::string;
+  [[nodiscard]] auto scope_name() const -> const std::string&;
+  [[nodiscard]] auto collection_name() const -> const std::string&;
+  [[nodiscard]] auto is_collection_unset() const -> bool;
+  [[nodiscard]] auto is_default_collection() const -> bool;
+  [[nodiscard]] auto has_collection_id() const -> bool;
+
+  void collection(const std::string& scope_name, const std::string& collection_name);
+  void id(const std::string& scope_name,
+          const std::string& collection_name,
+          const std::string& document_key);
+
   std::size_t replica_index_{ 0 };
   // This tracks when the request was dispatched so that we can properly prioritize older requests
   // to try and meet timeout requirements.
@@ -87,6 +101,9 @@ public:
   std::shared_ptr<couchbase::retry_strategy> retry_strategy_{};
 
 private:
+  std::string collection_name_{};
+  std::string scope_name_{};
+
   // Static routing properties
   queue_callback callback_;
 

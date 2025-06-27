@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace couchbase
 {
 /**
@@ -25,7 +27,7 @@ namespace couchbase
  * @since 1.0.0
  * @committed
  */
-enum class retry_reason {
+enum class retry_reason : std::uint8_t {
   /**
    * default value, e.g. when we don't need to retry
    */
@@ -101,9 +103,9 @@ enum class retry_reason {
   views_no_active_partition,
 };
 
-bool
-allows_non_idempotent_retry(retry_reason reason);
+auto
+allows_non_idempotent_retry(retry_reason reason) -> bool;
 
-bool
-always_retry(retry_reason reason);
+auto
+always_retry(retry_reason reason) -> bool;
 } // namespace couchbase

@@ -29,6 +29,11 @@ class queue_request;
 class operation_map
 {
 public:
+  operation_map() = default;
+  operation_map(const operation_map&) = default;
+  operation_map(operation_map&&) = delete;
+  auto operator=(const operation_map&) -> operation_map& = default;
+  auto operator=(operation_map&&) -> operation_map& = delete;
   virtual ~operation_map() = default;
   virtual void remove_request(std::shared_ptr<mcbp::queue_request> request) = 0;
 };

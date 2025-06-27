@@ -24,10 +24,7 @@
 
 #include <tl/expected.hpp>
 
-#include <map>
 #include <memory>
-#include <mutex>
-#include <string_view>
 
 namespace asio
 {
@@ -66,8 +63,8 @@ public:
                         dispatcher dispatcher,
                         const collections_component_options& options);
 
-  auto get_collection_id(std::string scope_name,
-                         std::string collection_name,
+  auto get_collection_id(const std::string& scope_name,
+                         const std::string& collection_name,
                          const get_collection_id_options& options,
                          get_collection_id_callback callback)
     -> tl::expected<std::shared_ptr<pending_operation>, std::error_code>;

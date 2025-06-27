@@ -19,13 +19,15 @@
 
 #include "big_endian.hxx"
 #include "buffer_writer.hxx"
+#include "core/logger/logger.hxx"
+#include "core/mcbp/command_code.hxx"
+#include "core/protocol/status.hxx"
+#include "core/utils/unsigned_leb128.hxx"
 #include "server_duration.hxx"
 
-#include "core/logger/logger.hxx"
-#include "core/utils/unsigned_leb128.hxx"
+#include <couchbase/error_codes.hxx>
 
 #include <algorithm>
-#include <couchbase/error_codes.hxx>
 #include <cstdint>
 
 namespace couchbase::core::mcbp

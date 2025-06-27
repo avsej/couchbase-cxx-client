@@ -243,21 +243,21 @@ public:
     return tl::unexpected(errc::common::unsupported_operation);
   }
 
-  auto get_collection_id(std::string scope_name,
-                         std::string collection_name,
+  auto get_collection_id(const std::string& scope_name,
+                         const std::string& collection_name,
                          const get_collection_id_options& options,
                          get_collection_id_callback callback)
     -> tl::expected<std::shared_ptr<pending_operation>, std::error_code>
   {
     return collections_.get_collection_id(
-      std::move(scope_name), std::move(collection_name), options, std::move(callback));
+      scope_name, collection_name, options, std::move(callback));
   }
 
-  auto wait_until_ready(
-    std::chrono::milliseconds /* timeout */,
-    const wait_until_ready_options& /* options */,
-    wait_until_ready_callback&&
-    /* callback */) -> tl::expected<std::shared_ptr<pending_operation>, std::error_code>
+  auto wait_until_ready(std::chrono::milliseconds /* timeout */,
+                        const wait_until_ready_options& /* options */,
+                        wait_until_ready_callback&&
+                        /* callback */)
+    -> tl::expected<std::shared_ptr<pending_operation>, std::error_code>
   {
     return tl::unexpected(errc::common::unsupported_operation);
   }

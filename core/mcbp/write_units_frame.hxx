@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include <cstddef>
-#include <vector>
+#include <cstdint>
 
 namespace couchbase::core::mcbp
 {

@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <cinttypes>
+#include <cstdint>
 
 namespace couchbase::core::mcbp
 {

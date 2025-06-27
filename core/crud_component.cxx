@@ -268,8 +268,7 @@ public:
       options.retry_strategy ? options.retry_strategy : default_retry_strategy_;
     req->datatype_ = static_cast<std::byte>(protocol::datatype::json);
     req->vbucket_ = vbucket_id;
-    req->scope_name_ = options.scope_name;
-    req->collection_name_ = options.collection_name;
+    req->collection(options.scope_name, options.collection_name);
     if (auto [value, ec] = serialize_range_scan_create_options(options); !ec) {
       req->value_ = std::move(value);
     } else {

@@ -19,7 +19,6 @@
 
 #include "core/utils/movable_function.hxx"
 
-#include <functional>
 #include <memory>
 #include <system_error>
 
