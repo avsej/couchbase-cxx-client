@@ -17,6 +17,7 @@
 
 #include <couchbase/bucket.hxx>
 
+#include "core/agent_group.hxx"
 #include "core/cluster.hxx"
 #include "diagnostics.hxx"
 
@@ -26,6 +27,8 @@
 #include <couchbase/ping_options.hxx>
 #include <couchbase/ping_result.hxx>
 #include <couchbase/scope.hxx>
+
+#include <spdlog/fmt/bundled/core.h>
 
 #include <future>
 #include <memory>
@@ -37,10 +40,24 @@ namespace couchbase
 class bucket_impl : public std::enable_shared_from_this<bucket_impl>
 {
 public:
-  bucket_impl(core::cluster core, std::string_view name)
+  bucket_impl(core::cluster core, std::string_view name, const core::agent_group& agent_group)
     : core_{ std::move(core) }
     , name_{ name }
   {
+    auto ec = agent_group.open_bucket(name_);
+    if (ec) {
+      throw error(ec, fmt::format("An error occurred while opening the `{}` bucket.", name));
+    }
+    // auto agent = agent_group.get_agent(bucket_name_);
+    // if (!agent.has_value()) {
+    //   return handler(
+    //     error(agent.error(),
+    //           fmt::format(
+    //             "An error occurred while getting an operation agent for the `{}` bucket",
+    //             bucket_name_)),
+    //     {});
+    // }
+    //
   }
 
   [[nodiscard]] auto name() const -> const std::string&
@@ -69,8 +86,8 @@ private:
   std::string name_;
 };
 
-bucket::bucket(core::cluster core, std::string_view name)
-  : impl_(std::make_shared<bucket_impl>(std::move(core), name))
+bucket::bucket(core::cluster core, std::string_view name, const core::agent_group& agent_group)
+  : impl_(std::make_shared<bucket_impl>(std::move(core), name, agent_group))
 {
 }
 

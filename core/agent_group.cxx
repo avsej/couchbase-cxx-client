@@ -176,7 +176,7 @@ agent_group::agent_group(asio::io_context& io, agent_group_config config)
 }
 
 auto
-agent_group::open_bucket(const std::string& bucket_name) -> std::error_code
+agent_group::open_bucket(const std::string& bucket_name) const -> std::error_code
 {
   return impl_->open_bucket(bucket_name);
 }

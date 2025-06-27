@@ -30,6 +30,7 @@ namespace couchbase
 namespace core
 {
 class cluster;
+class agent_group;
 } // namespace core
 class cluster;
 class bucket_impl;
@@ -117,7 +118,7 @@ public:
 private:
   friend cluster;
 
-  bucket(core::cluster core, std::string_view name);
+  bucket(core::cluster core, std::string_view name, const core::agent_group &agent_group);
 
   std::shared_ptr<bucket_impl> impl_;
 };

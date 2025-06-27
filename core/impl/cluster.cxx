@@ -394,6 +394,11 @@ public:
     }).detach();
   }
 
+  [[nodiscard]] auto agent_group() const -> const core::agent_group&
+  {
+    return agent_group_;
+  }
+
   [[nodiscard]] auto core() const -> const core::cluster&
   {
     return core_;
@@ -427,6 +432,7 @@ private:
   cluster_options options_;
   asio::io_context io_{ ASIO_CONCURRENCY_HINT_SAFE };
   core::cluster core_{ io_ };
+  core::agent_group agent_group_{ io_, core::agent_group_config{ core::core_sdk_shim{ core_ } } };
   std::shared_ptr<core::transactions::transactions> transactions_{ nullptr };
   std::thread io_thread_{ [&io = io_] {
     io.run();
@@ -644,7 +650,24 @@ cluster::analytics_indexes() const -> analytics_index_manager
 auto
 cluster::bucket(std::string_view bucket_name) const -> couchbase::bucket
 {
-  return { impl_->core(), bucket_name };
+            // ec = agent_group.open_bucket(bucket_name_);
+            // if (ec) {
+            //   return handler(error(ec,
+            //                        fmt::format("An error occurred while opening the `{}` bucket.",
+            //                                    bucket_name_)),
+            //                  {});
+            // }
+            // auto agent = agent_group.get_agent(bucket_name_);
+            // if (!agent.has_value()) {
+            //   return handler(
+            //     error(agent.error(),
+            //           fmt::format(
+            //             "An error occurred while getting an operation agent for the `{}` bucket",
+            //             bucket_name_)),
+            //     {});
+            // }
+            //
+  return { impl_->core(), bucket_name, impl_->agent_group() };
 }
 
 auto

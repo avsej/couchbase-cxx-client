@@ -543,14 +543,13 @@ agent::stats(const stats_options& options, stats_callback&& callback)
 }
 
 auto
-agent::get_collection_id(std::string scope_name,
-                         std::string collection_name,
+agent::get_collection_id(const std::string& scope_name,
+                         const std::string& collection_name,
                          const get_collection_id_options& options,
                          get_collection_id_callback callback)
   -> tl::expected<std::shared_ptr<pending_operation>, std::error_code>
 {
-  return impl_->get_collection_id(
-    std::move(scope_name), std::move(collection_name), options, std::move(callback));
+  return impl_->get_collection_id(scope_name, collection_name, options, std::move(callback));
 }
 
 auto

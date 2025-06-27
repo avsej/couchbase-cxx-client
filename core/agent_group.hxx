@@ -50,7 +50,7 @@ class agent_group
 public:
   agent_group(asio::io_context& io, agent_group_config config);
 
-  auto open_bucket(const std::string& bucket_name) -> std::error_code;
+  [[nodiscard]] auto open_bucket(const std::string& bucket_name) const -> std::error_code;
 
   auto get_agent(const std::string& bucket_name) -> tl::expected<agent, std::error_code>;
 
