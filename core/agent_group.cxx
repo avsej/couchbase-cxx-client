@@ -182,7 +182,7 @@ agent_group::open_bucket(const std::string& bucket_name) const -> std::error_cod
 }
 
 auto
-agent_group::get_agent(const std::string& bucket_name) -> tl::expected<agent, std::error_code>
+agent_group::get_agent(const std::string& bucket_name) const -> tl::expected<agent, std::error_code>
 {
   return impl_->get_agent(bucket_name);
 }

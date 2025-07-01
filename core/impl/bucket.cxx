@@ -40,24 +40,16 @@ namespace couchbase
 class bucket_impl : public std::enable_shared_from_this<bucket_impl>
 {
 public:
-  bucket_impl(core::cluster core, std::string_view name, const core::agent_group& agent_group)
+  bucket_impl(core::cluster core, std::string_view name, core::agent_group agent_group)
     : core_{ std::move(core) }
     , name_{ name }
+    , agent_group_{ std::move(agent_group) }
   {
-    auto ec = agent_group.open_bucket(name_);
+    auto ec = agent_group_.open_bucket(name_);
     if (ec) {
-      throw error(ec, fmt::format("An error occurred while opening the `{}` bucket.", name));
+      // FIXME(SA): use better exception
+      throw std::logic_error(fmt::format("An error occurred while opening the `{}` bucket.", name));
     }
-    // auto agent = agent_group.get_agent(bucket_name_);
-    // if (!agent.has_value()) {
-    //   return handler(
-    //     error(agent.error(),
-    //           fmt::format(
-    //             "An error occurred while getting an operation agent for the `{}` bucket",
-    //             bucket_name_)),
-    //     {});
-    // }
-    //
   }
 
   [[nodiscard]] auto name() const -> const std::string&
@@ -68,6 +60,11 @@ public:
   [[nodiscard]] auto core() const -> const core::cluster&
   {
     return core_;
+  }
+
+  [[nodiscard]] auto agent_group() const -> const core::agent_group&
+  {
+    return agent_group_;
   }
 
   void ping(const ping_options::built& options, ping_handler&& handler) const
@@ -84,6 +81,7 @@ public:
 private:
   core::cluster core_;
   std::string name_;
+  core::agent_group agent_group_;
 };
 
 bucket::bucket(core::cluster core, std::string_view name, const core::agent_group& agent_group)
@@ -94,19 +92,23 @@ bucket::bucket(core::cluster core, std::string_view name, const core::agent_grou
 auto
 bucket::default_scope() const -> couchbase::scope
 {
-  return { impl_->core(), impl_->name(), scope::default_name };
+  return { impl_->core(), impl_->agent_group(), impl_->name(), scope::default_name };
 }
 
 auto
 bucket::default_collection() const -> couchbase::collection
 {
-  return { impl_->core(), impl_->name(), scope::default_name, collection::default_name };
+  return { impl_->core(),
+           impl_->agent_group(),
+           impl_->name(),
+           scope::default_name,
+           collection::default_name };
 }
 
 auto
 bucket::scope(std::string_view scope_name) const -> couchbase::scope
 {
-  return { impl_->core(), impl_->name(), scope_name };
+  return { impl_->core(), impl_->agent_group(), impl_->name(), scope_name };
 }
 
 void

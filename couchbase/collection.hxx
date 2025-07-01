@@ -54,6 +54,7 @@ namespace couchbase
 namespace core
 {
 class cluster;
+class agent_group;
 } // namespace core
 class bucket;
 class scope;
@@ -1084,6 +1085,7 @@ private:
   friend class scope;
 
   collection(core::cluster core,
+             core::agent_group agent_group,
              std::string_view bucket_name,
              std::string_view scope_name,
              std::string_view name);

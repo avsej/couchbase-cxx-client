@@ -33,6 +33,7 @@ namespace couchbase
 namespace core
 {
 class cluster;
+class agent_group;
 } // namespace core
 class bucket;
 class scope_impl;
@@ -190,8 +191,9 @@ public:
    * @since 1.0.0
    * @committed
    */
-  [[nodiscard]] auto analytics_query(std::string statement, const analytics_options& options = {})
-    const -> std::future<std::pair<error, analytics_result>>;
+  [[nodiscard]] auto analytics_query(std::string statement,
+                                     const analytics_options& options = {}) const
+    -> std::future<std::pair<error, analytics_result>>;
 
   /**
    * Provides access to search index management services at the scope level
@@ -206,7 +208,10 @@ public:
 private:
   friend class bucket;
 
-  scope(core::cluster core, std::string_view bucket_name, std::string_view name);
+  scope(core::cluster core,
+        core::agent_group agent_group,
+        std::string_view bucket_name,
+        std::string_view name);
 
   std::shared_ptr<scope_impl> impl_;
 };

@@ -109,10 +109,12 @@ class collection_impl : public std::enable_shared_from_this<collection_impl>
 {
 public:
   collection_impl(core::cluster core,
+                  core::agent_group agent_group,
                   std::string_view bucket_name,
                   std::string_view scope_name,
                   std::string_view name)
     : core_{ std::move(core) }
+    , agent_group_{ std::move(agent_group) }
     , bucket_name_{ bucket_name }
     , scope_name_{ scope_name }
     , name_{ name }
@@ -141,6 +143,16 @@ public:
 
   void get(std::string document_key, get_options::built options, get_handler&& handler) const
   {
+
+    auto agent = agent_group_.get_agent(name_);
+    if (!agent.has_value()) {
+      return handler(
+        error(agent.error(),
+              fmt::format("An error occurred while getting an operation agent for the `{}` bucket",
+                          name_)),
+        {});
+    }
+
     if (!options.with_expiry && options.projections.empty()) {
       return core_.execute(
         core::operations::get_request{
@@ -898,16 +910,14 @@ public:
                                    "This bucket does not support range scan."),
                              {});
             }
-            auto agent_group =
-              core::agent_group(core_.io_context(), core::agent_group_config{ { core_ } });
-            ec = agent_group.open_bucket(bucket_name_);
+            ec = agent_group_.open_bucket(bucket_name_);
             if (ec) {
               return handler(error(ec,
                                    fmt::format("An error occurred while opening the `{}` bucket.",
                                                bucket_name_)),
                              {});
             }
-            auto agent = agent_group.get_agent(bucket_name_);
+            auto agent = agent_group_.get_agent(bucket_name_);
             if (!agent.has_value()) {
               return handler(
                 error(agent.error(),
@@ -946,16 +956,22 @@ public:
 
 private:
   core::cluster core_;
+  core::agent_group agent_group_;
   std::string bucket_name_;
   std::string scope_name_;
   std::string name_;
 };
 
 collection::collection(core::cluster core,
+                       core::agent_group agent_group,
                        std::string_view bucket_name,
                        std::string_view scope_name,
                        std::string_view name)
-  : impl_(std::make_shared<collection_impl>(std::move(core), bucket_name, scope_name, name))
+  : impl_(std::make_shared<collection_impl>(std::move(core),
+                                            std::move(agent_group),
+                                            bucket_name,
+                                            scope_name,
+                                            name))
 {
 }
 

@@ -16,6 +16,7 @@
  */
 
 #include "analytics.hxx"
+#include "core/agent_group.hxx"
 #include "core/cluster.hxx"
 #include "error.hxx"
 #include "internal_search_error_context.hxx"
@@ -41,8 +42,12 @@ namespace couchbase
 class scope_impl
 {
 public:
-  scope_impl(core::cluster core, std::string_view bucket_name, std::string_view name)
+  scope_impl(core::cluster core,
+             core::agent_group agent_group,
+             std::string_view bucket_name,
+             std::string_view name)
     : core_{ std::move(core) }
+    , agent_group_{ std::move(agent_group) }
     , bucket_name_{ bucket_name }
     , name_{ name }
     , query_context_{ fmt::format("default:`{}`.`{}`", bucket_name_, name_) }
@@ -62,6 +67,11 @@ public:
   [[nodiscard]] auto core() const -> const core::cluster&
   {
     return core_;
+  }
+
+  [[nodiscard]] auto agent_group() const -> const core::agent_group&
+  {
+    return agent_group_;
   }
 
   void query(std::string statement, query_options::built options, query_handler&& handler) const
@@ -101,13 +111,14 @@ public:
 
 private:
   core::cluster core_;
+  core::agent_group agent_group_;
   std::string bucket_name_;
   std::string name_;
   std::string query_context_;
 };
 
-scope::scope(core::cluster core, std::string_view bucket_name, std::string_view name)
-  : impl_(std::make_shared<scope_impl>(std::move(core), bucket_name, name))
+scope::scope(core::cluster core, core::agent_group agent_group, std::string_view bucket_name, std::string_view name)
+  : impl_(std::make_shared<scope_impl>(std::move(core), std::move(agent_group), bucket_name, name))
 {
 }
 
@@ -126,7 +137,7 @@ scope::name() const -> const std::string&
 auto
 scope::collection(std::string_view collection_name) const -> couchbase::collection
 {
-  return { impl_->core(), impl_->bucket_name(), impl_->name(), collection_name };
+  return { impl_->core(), impl_->agent_group(), impl_->bucket_name(), impl_->name(), collection_name };
 }
 
 void
