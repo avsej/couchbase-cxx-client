@@ -1282,6 +1282,24 @@ public:
 #endif
   }
 
+  [[nodiscard]] auto pending_buffers() -> std::vector<std::vector<std::byte>>&&
+  {
+    const std::scoped_lock lock(pending_buffer_mutex_);
+    return std::move(pending_buffer_);
+  }
+
+  void write(std::vector<std::vector<std::byte>>&& buffers)
+  {
+    if (stopped_) {
+      return;
+    }
+    const std::scoped_lock lock(output_buffer_mutex_);
+    for (auto& buf : buffers) {
+      CB_LOG_TRACE("{} MCBP send {}", log_prefix_, mcbp_header_view(buf));
+      output_buffer_.emplace_back(std::move(buf));
+    }
+  }
+
   void write(std::vector<std::byte>&& buf)
   {
     if (stopped_) {
@@ -1722,23 +1740,6 @@ private:
       return initiate_bootstrap();
     }
 
-    if (!bootstrapped_ && bootstrap_callback_) {
-      bootstrap_deadline_.cancel();
-      if (config_ && state_listener_) {
-        std::vector<std::string> endpoints;
-        endpoints.reserve(config_.value().nodes.size());
-        for (const auto& node : config_.value().nodes) {
-          if (auto endpoint =
-                node.endpoint(origin_.options().network, service_type::key_value, is_tls_);
-              endpoint) {
-            endpoints.push_back(endpoint.value());
-          }
-        }
-        state_listener_->report_bootstrap_success(endpoints);
-      }
-      auto h = std::move(bootstrap_callback_);
-      h(ec, config_.value_or(topology::configuration{}));
-    }
     if (ec) {
       return stop(retry_reason::node_not_available);
     }
@@ -1750,17 +1751,33 @@ private:
       }
     }
     state_ = diag::endpoint_state::connected;
-    const std::scoped_lock lock(pending_buffer_mutex_);
-    bootstrapped_ = true;
     bootstrap_handler_->stop();
     handler_ = std::make_shared<message_handler>(shared_from_this());
     handler_->start();
-    if (!pending_buffer_.empty()) {
-      for (auto& buf : pending_buffer_) {
-        write(std::move(buf));
-      }
-      pending_buffer_.clear();
+
+    if (auto buffers = pending_buffers(); !buffers.empty()) {
+      write(std::move(buffers));
       flush();
+    }
+
+    if (!bootstrapped_) {
+      bootstrapped_ = true;
+      if (auto h = std::move(bootstrap_callback_); h) {
+        bootstrap_deadline_.cancel();
+        if (config_ && state_listener_) {
+          std::vector<std::string> endpoints;
+          endpoints.reserve(config_.value().nodes.size());
+          for (const auto& node : config_.value().nodes) {
+            if (auto endpoint =
+                  node.endpoint(origin_.options().network, service_type::key_value, is_tls_);
+                endpoint) {
+              endpoints.push_back(endpoint.value());
+            }
+          }
+          state_listener_->report_bootstrap_success(endpoints);
+        }
+        h(ec, config_.value_or(topology::configuration{}));
+      }
     }
   }
 

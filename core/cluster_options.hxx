@@ -63,7 +63,7 @@ public:
   bool enable_mutation_tokens{ true };
   bool enable_tcp_keep_alive{ true };
   io::ip_protocol use_ip_protocol{ io::ip_protocol::any };
-  bool enable_dns_srv{ true };
+  bool enable_dns_srv{ false };
   io::dns::dns_config dns_config{ io::dns::dns_config::system_config() };
   bool show_queries{ false };
   bool enable_unordered_execution{ true };

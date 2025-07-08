@@ -34,6 +34,10 @@
 #include "core/operations/document_upsert.hxx"
 #include "core/utils/connection_string.hxx"
 
+#include <asio/steady_timer.hpp>
+
+#include <chrono>
+
 TEST_CASE("integration: connecting with empty bootstrap nodes list", "[integration]")
 {
   asio::io_context io{};
@@ -59,7 +63,9 @@ TEST_CASE("integration: connecting with unresponsive first node in bootstrap nod
           "[integration]")
 {
   test::utils::init_logger();
-  asio::io_context io{};
+
+  asio::io_context io{ ASIO_CONCURRENCY_HINT_SAFE };
+
   auto ctx = test::utils::test_context::load_from_environment();
   if (ctx.deployment == test::utils::deployment_type::capella ||
       ctx.deployment == test::utils::deployment_type::elixir) {
@@ -77,10 +83,12 @@ TEST_CASE("integration: connecting with unresponsive first node in bootstrap nod
                                    couchbase::core::utils::connection_string::bootstrap_mode::gcccp,
                                  });
   auto origin = couchbase::core::origin(ctx.build_auth(), connstr);
+
   couchbase::core::cluster cluster(io);
   auto io_thread = std::thread([&io]() {
     io.run();
   });
+
   auto barrier = std::make_shared<std::promise<std::error_code>>();
   auto f = barrier->get_future();
   cluster.open(origin, [barrier](std::error_code ec) mutable {
@@ -89,6 +97,7 @@ TEST_CASE("integration: connecting with unresponsive first node in bootstrap nod
   auto rc = f.get();
   REQUIRE_SUCCESS(rc);
   test::utils::close_cluster(cluster);
+  io.stop();
   io_thread.join();
 }
 

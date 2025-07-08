@@ -254,9 +254,9 @@ class threshold_logging_tracer_impl
 {
 public:
   threshold_logging_tracer_impl(const threshold_logging_options& options, asio::io_context& ctx)
-    : options_(options)
-    , emit_orphan_report_(ctx)
-    , emit_threshold_report_(ctx)
+    : options_{ options }
+    , emit_orphan_report_{ ctx }
+    , emit_threshold_report_{ ctx }
     , orphan_queue_{ options.orphaned_sample_size }
   {
     threshold_queues_.try_emplace(service_type::key_value, options.threshold_sample_size);

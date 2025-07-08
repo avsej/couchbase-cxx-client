@@ -784,39 +784,6 @@ public:
     }
     session_->bootstrap([self = shared_from_this(), handler = std::move(handler)](
                           std::error_code ec, const topology::configuration& config) mutable {
-      if (!ec) {
-        if (self->origin_.options().network == "auto") {
-          self->origin_.options().network =
-            config.select_network(self->session_->bootstrap_hostname());
-          if (self->origin_.options().network == "default") {
-            CB_LOG_DEBUG(R"({} detected network is "{}")",
-                         self->session_->log_prefix(),
-                         self->origin_.options().network);
-          } else {
-            CB_LOG_INFO(R"({} detected network is "{}")",
-                        self->session_->log_prefix(),
-                        self->origin_.options().network);
-          }
-        }
-        if (self->origin_.options().network != "default") {
-          self->origin_.set_nodes_from_config(config);
-          CB_LOG_INFO(
-            "replace list of bootstrap nodes with addresses of alternative network \"{}\": [{}]",
-            self->origin_.options().network,
-            utils::join_strings(self->origin_.get_nodes(), ","));
-        }
-        // FIXME(SA): fix the session manager to receive initial configuration and cluster-wide
-        // session to poll for updates like the bucket does. Or just subscribe before the bootstrap.
-        self->session_manager_->set_configuration(config, self->origin_.options());
-        self->session_->on_configuration_update(self->session_manager_);
-        self->session_->on_configuration_update(self->app_telemetry_reporter_);
-        self->app_telemetry_reporter_->update_config(config);
-        self->session_->on_stop([self]() {
-          if (self->session_) {
-            self->session_.reset();
-          }
-        });
-      }
       if (ec) {
         // TODO(CXXCBC-549): clang-tidy-19 reports potential memory leak here
         // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
@@ -824,6 +791,38 @@ public:
           handler(ec);
         });
       }
+
+      if (self->origin_.options().network == "auto") {
+        self->origin_.options().network =
+          config.select_network(self->session_->bootstrap_hostname());
+        if (self->origin_.options().network == "default") {
+          CB_LOG_DEBUG(R"({} detected network is "{}")",
+                       self->session_->log_prefix(),
+                       self->origin_.options().network);
+        } else {
+          CB_LOG_INFO(R"({} detected network is "{}")",
+                      self->session_->log_prefix(),
+                      self->origin_.options().network);
+        }
+      }
+      if (self->origin_.options().network != "default") {
+        self->origin_.set_nodes_from_config(config);
+        CB_LOG_INFO(
+          "replace list of bootstrap nodes with addresses of alternative network \"{}\": [{}]",
+          self->origin_.options().network,
+          utils::join_strings(self->origin_.get_nodes(), ","));
+      }
+      // FIXME(SA): fix the session manager to receive initial configuration and cluster-wide
+      // session to poll for updates like the bucket does. Or just subscribe before the bootstrap.
+      self->session_manager_->set_configuration(config, self->origin_.options());
+      self->session_->on_configuration_update(self->session_manager_);
+      self->session_->on_configuration_update(self->app_telemetry_reporter_);
+      self->app_telemetry_reporter_->update_config(config);
+      self->session_->on_stop([self]() {
+        if (self->session_) {
+          self->session_.reset();
+        }
+      });
       handler(ec);
     });
   }

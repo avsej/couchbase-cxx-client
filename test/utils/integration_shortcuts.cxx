@@ -49,12 +49,20 @@ open_cluster(const couchbase::core::cluster& cluster, const couchbase::core::ori
 void
 close_cluster(const couchbase::core::cluster& cluster)
 {
-  auto barrier = std::make_shared<std::promise<void>>();
-  auto f = barrier->get_future();
-  cluster.close([barrier]() {
-    barrier->set_value();
+  std::mutex mtx;
+  std::condition_variable cv;
+  bool done = false;
+
+  cluster.close([&]() {
+    std::scoped_lock lock(mtx);
+    done = true;
+    cv.notify_one();
   });
-  f.get();
+
+  std::unique_lock lock(mtx);
+  cv.wait(lock, [&] {
+    return done;
+  });
 }
 
 void
