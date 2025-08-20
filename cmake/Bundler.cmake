@@ -89,7 +89,7 @@ function(bundle_static_library tgt_name bundled_tgt_name)
     endif()
 
     add_custom_command(
-      COMMAND ${ar_tool} -M < ${CMAKE_BINARY_DIR}/${bundled_tgt_name}.ar
+      COMMAND ${ar_tool} -v -M < ${CMAKE_BINARY_DIR}/${bundled_tgt_name}.ar
       OUTPUT ${bundled_tgt_full_name}
       DEPENDS ${tgt_name} ${static_libs}
       COMMENT "Bundling ${bundled_tgt_name}"
