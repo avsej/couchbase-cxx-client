@@ -17,13 +17,11 @@
 
 #pragma once
 
-#include <CLI/App.hpp>
+#include <functional>
+#include <string>
 
 namespace cbc
 {
-auto
-make_pillowfight_command() -> std::shared_ptr<CLI::App>;
-
-auto
-execute_pillowfight_command(const CLI::App* app) -> int;
+void
+config_graphical_ui(const std::function<std::string()> &get_config);
 } // namespace cbc

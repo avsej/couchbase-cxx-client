@@ -16,6 +16,7 @@
  */
 
 #include "config.hxx"
+#include "config-gui.hxx"
 
 #include "core/operations/management/bucket_describe.hxx"
 #include "core/operations/management/cluster_describe.hxx"
@@ -122,6 +123,8 @@ public:
     add_option("--watch-interval", watch_interval_, "Request configuration periodically.")
       ->type_name("DURATION");
 
+    add_flag("--gui", gui_, "Run graphical UI.");
+
     add_common_options(this, common_options_);
     allow_extras(true);
   }
@@ -154,6 +157,16 @@ public:
       };
     }();
 
+    if (gui_) {
+        fmt::println(stderr, "running GUI mode");
+      return config_graphical_ui(get_config);
+    }
+        fmt::println(stderr, "running non-GUI mode");
+    basic_ui(get_config);
+  }
+
+  void basic_ui(const std::function<std::string()>& get_config) const
+  {
     std::signal(SIGINT, sigint_handler);
     std::signal(SIGTERM, sigint_handler);
 
@@ -177,8 +190,8 @@ private:
   std::chrono::milliseconds watch_interval_{ 0 };
   std::string level_{ "bucket" };
   std::string bucket_name_{ default_bucket_name };
+  bool gui_{ false };
 };
-
 } // namespace
 
 auto
