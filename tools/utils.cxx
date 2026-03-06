@@ -29,8 +29,8 @@
 #include <couchbase/fmt/durability_level.hxx>
 #include <couchbase/fmt/query_scan_consistency.hxx>
 #include <couchbase/scope.hxx>
-#include <cstdlib>
 
+#ifdef COUCHBASE_CXX_CLIENT_BUILD_OPENTELEMETRY
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wsign-conversion"
@@ -79,13 +79,16 @@
 #pragma clang diagnostic pop
 #endif
 
+#include <memory>
+#endif
+
 #include <spdlog/details/os.h>
 #include <spdlog/fmt/bundled/chrono.h>
 #include <spdlog/spdlog.h>
 #include <tao/json/value.hpp>
 
 #include <chrono>
-#include <memory>
+#include <cstdlib>
 #include <regex>
 #include <stdexcept>
 
@@ -930,13 +933,16 @@ apply_opentelemetry_tracer_options(couchbase::cluster_options& options,
     opentelemetry::trace::Provider::GetTracerProvider()->GetTracer(
       "cbc", couchbase::core::meta::sdk_semver())));
 }
+#endif
 
 void
 apply_options(couchbase::cluster_options& options, const tracing_options& tracing)
 {
+#ifdef COUCHBASE_CXX_CLIENT_BUILD_OPENTELEMETRY
   if (tracing.opentelemetry.use_opentelemetry) {
     apply_opentelemetry_tracer_options(options, tracing.opentelemetry);
   }
+#endif
 
   options.tracing().enable(!tracing.disable);
   options.tracing().orphaned_emit_interval(tracing.orphaned_emit_interval);
