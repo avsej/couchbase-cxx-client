@@ -24,7 +24,6 @@ if(NOT _skip_system_grpc)
   find_package(gRPC CONFIG QUIET)
 endif()
 
-
 if(gRPC_FOUND)
   message(STATUS "Found system gRPC: ${gRPC_VERSION}")
   set(protobuf_MODULE_COMPATIBLE ON CACHE BOOL "")
