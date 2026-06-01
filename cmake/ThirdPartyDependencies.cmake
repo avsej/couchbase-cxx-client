@@ -76,6 +76,42 @@ if(COUCHBASE_CXX_CLIENT_BUILD_OPENTELEMETRY)
     # openssl.c and removes the BoringSSL/OpenSSL header mismatch.
     set(CURL_DISABLE_SRP ON CACHE BOOL "" FORCE)
 
+    if(COUCHBASE_CXX_CLIENT_STATIC_BORINGSSL)
+      # Third symptom of the same curl-vs-BoringSSL clash: curl's
+      # configure runs multiple check_symbol_exists probes with
+      # OpenSSL::SSL in CMAKE_REQUIRED_LIBRARIES. check_symbol_exists
+      # generates a TryCompile sub-project that does NOT inherit
+      # ALIAS targets from the parent scope; cmake/OpenSSL.cmake
+      # aliases OpenSSL::SSL -> BoringSSL's `ssl` OBJECT library,
+      # which works for the main project but resolves to "target not
+      # found" in TryCompile. On hosts whose system OpenSSL has
+      # libcrypto but not libssl (e.g. alpine3.21 without
+      # openssl-dev, or ubuntu24 with only the runtime libssl
+      # package), curl's find_package(OpenSSL) returns
+      # OpenSSL::Crypto without OpenSSL::SSL either, so the
+      # fallback path doesn't save us.
+      #
+      # curl runs two batches of probes that hit this:
+      #   1) SSL-implementation detection (CMakeLists.txt:838-846):
+      #      HAVE_AWSLC, HAVE_BORINGSSL, HAVE_LIBRESSL
+      #   2) OpenSSL feature probes via the curl_openssl_check_exists
+      #      helper (CMakeLists.txt:1071-1080):
+      #      HAVE_DES_ECB_ENCRYPT, HAVE_SSL_SET0_WBIO
+      #
+      # We are BoringSSL at the cxx-client's pinned SHA, which
+      # provides both DES_ecb_encrypt (src/include/openssl/des.h)
+      # and SSL_set0_wbio (src/include/openssl/ssl.h). Pre-populate
+      # the probe outputs in the cache; curl's own
+      # `if(NOT DEFINED HAVE_X)` guards treat the pre-set variables
+      # as authoritative and skip the failing TryCompile. Matches
+      # upstream curl's HAVE_MBEDTLS_DES_CRYPT_ECB pre-fill pattern.
+      set(HAVE_AWSLC 0 CACHE INTERNAL "")
+      set(HAVE_BORINGSSL 1 CACHE INTERNAL "")
+      set(HAVE_LIBRESSL 0 CACHE INTERNAL "")
+      set(HAVE_DES_ECB_ENCRYPT 1 CACHE INTERNAL "")
+      set(HAVE_SSL_SET0_WBIO 1 CACHE INTERNAL "")
+    endif()
+
     # https://github.com/open-telemetry/opentelemetry-cpp/releases
     cpmaddpackage(
       NAME
