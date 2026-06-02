@@ -154,7 +154,12 @@ add_custom_command(
     ${CMAKE_COMMAND} -E rename
     "${COUCHBASE_CXX_CLIENT_TARBALL_NAME}/tmp/filtered_cache/${COUCHBASE_CXX_CLIENT_TARBALL_NAME}/tmp/cache"
     "${COUCHBASE_CXX_CLIENT_TARBALL_NAME}/third_party_cache"
-  COMMAND ${SED} -i "s/VERSION 3.25.0/VERSION 3.22.0/g"
+  # llhttp upstream declares cmake_minimum_required(3.25.0) but uses no CMake
+  # feature newer than ~3.12 (IN_LIST, target_sources, CMP0069). Rewrite it to
+  # the project's own floor (3.19, see top-level CMakeLists.txt) so the tarball
+  # does not demand a newer cmake than couchbase-cxx-client itself; everything
+  # else in third_party_cache declares <= 3.16.
+  COMMAND ${SED} -i "s/VERSION 3.25.0/VERSION 3.19.0/g"
           "${COUCHBASE_CXX_CLIENT_TARBALL_NAME}/third_party_cache/llhttp/*/llhttp/CMakeLists.txt"
   COMMAND ${SED} -i "s/Git REQUIRED/Git/g\;s/NOT GIT/NOT CHECK_DIRTY OR NOT GIT/g"
           "${COUCHBASE_CXX_CLIENT_TARBALL_NAME}/third_party_cache/cpm/CPM_*.cmake"
