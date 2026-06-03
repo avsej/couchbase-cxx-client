@@ -20,7 +20,11 @@ if(CMAKE_CXX_FLAGS MATCHES "-stdlib=libc\\+\\+")
   message(STATUS "Using libc++; skipping system gRPC to avoid ABI mismatch")
 endif()
 
-if(NOT _skip_system_grpc)
+# In packaging mode (CPM_DOWNLOAD_ALL) the tarball must always bundle gRPC
+# sources regardless of what the packaging host happens to have installed —
+# otherwise the tarball contents depend on the host (a box with grpc-devel
+# would produce a tarball that still needs github.com at build time).
+if(NOT _skip_system_grpc AND NOT CPM_DOWNLOAD_ALL)
   find_package(gRPC CONFIG QUIET)
 endif()
 
@@ -41,20 +45,24 @@ else()
     set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
   endif()
 
-  # Determine which submodules gRPC needs
+  # Determine which submodules gRPC needs.
+  #
+  # The list is part of CPM's cache key: a different submodule set produces a
+  # different hash and therefore a different third_party_cache directory, so
+  # it must be IDENTICAL on every platform that should hit the cache the
+  # source tarball ships. That is why third_party/zlib is fetched
+  # unconditionally even though only Windows *uses* it (gRPC_ZLIB_PROVIDER
+  # below stays "package" elsewhere — fetching is cheap, the provider switch
+  # decides whether it is built). gRPC's bundled zlib (1.2.x) has an fdopen
+  # macro in zutil.h that conflicts with newer macOS SDK headers, hence
+  # system zlib everywhere it exists.
   set(_GRPC_SUBMODULES
     "third_party/re2"
     "third_party/abseil-cpp"
     "third_party/protobuf"
     "third_party/cares/cares"
+    "third_party/zlib"
   )
-
-  # gRPC's bundled zlib (1.2.x) has an fdopen macro in zutil.h that conflicts
-  # with newer macOS SDK headers. Use system zlib where available (macOS/Linux)
-  # and only fall back to the bundled submodule on Windows.
-  if(WIN32)
-    list(APPEND _GRPC_SUBMODULES "third_party/zlib")
-  endif()
 
   # If the project already has BoringSSL targets (from cmake/OpenSSL.cmake),
   # reuse them instead of letting gRPC build a second copy.
@@ -69,25 +77,29 @@ else()
     endif()
     set(gRPC_SSL_PROVIDER "" CACHE STRING "" FORCE)
   else()
-    # No existing BoringSSL; let gRPC build its own from submodule
+    # No existing BoringSSL; let gRPC build its own from submodule.
+    # NOTE: this appends to the submodule list and therefore changes the CPM
+    # cache hash — configurations without the project BoringSSL will not hit
+    # the tarball's bundled grpc and will fetch from the network, exactly as
+    # they did before the CPM conversion. Every tarball/CI configuration
+    # builds with COUCHBASE_CXX_CLIENT_STATIC_BORINGSSL=ON, so they all take
+    # the cached branch above.
     list(APPEND _GRPC_SUBMODULES "third_party/boringssl-with-bazel")
     set(gRPC_SSL_PROVIDER "module" CACHE STRING "" FORCE)
   endif()
 
-  # Fetch gRPC from source with selected submodules.
-  # gRPC v1.65.x is the last series that ships protobuf 3.x which is compatible
-  # with the protobuf version opentelemetry-cpp 1.23 expects.
-  # https://github.com/grpc/grpc/releases
-  FetchContent_Declare(
-    grpc
-    GIT_REPOSITORY https://github.com/grpc/grpc.git
-    GIT_TAG v1.65.5
-    GIT_SHALLOW TRUE
-    GIT_SUBMODULES ${_GRPC_SUBMODULES}
-  )
-
   set(gRPC_INSTALL OFF CACHE BOOL "" FORCE)
   set(gRPC_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  # gRPC's CMakeLists downloads xds/envoy-api/googleapis/opencensus-proto
+  # archives from the grpc-bazel-mirror at configure time when their
+  # third_party/ directories don't exist. None of the gRPC targets we build
+  # need them — a fresh git clone leaves empty submodule-placeholder dirs for
+  # three of the four, which suppresses the download, and CI has been building
+  # gRPC that way all along. Disabling the downloads makes the behavior
+  # uniform (the empty-dir suppression does not survive the source tarball,
+  # whose manifest carries files only) and keeps from-tarball builds fully
+  # offline.
+  set(gRPC_DOWNLOAD_ARCHIVES OFF CACHE BOOL "" FORCE)
   set(gRPC_BUILD_GRPC_CPP_PLUGIN ON CACHE BOOL "" FORCE)
   set(gRPC_BUILD_GRPC_CSHARP_PLUGIN OFF CACHE BOOL "" FORCE)
   set(gRPC_BUILD_GRPC_OBJECTIVE_C_PLUGIN OFF CACHE BOOL "" FORCE)
@@ -111,7 +123,33 @@ else()
   set(protobuf_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
   set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
 
-  FetchContent_MakeAvailable(grpc)
+  # Fetch gRPC from source with the selected submodules — via CPM, NOT raw
+  # FetchContent, so that the source-tarball machinery captures it: packaging
+  # configures with CPM_DOWNLOAD_ALL + CPM_USE_NAMED_CACHE_DIRECTORIES and
+  # harvests CPM_SOURCE_CACHE into the tarball's third_party_cache/, and
+  # from-tarball builds (cmake/TarballRelease.cmake) point CPM back at it.
+  # gRPC was previously the one dependency that bypassed this and re-cloned
+  # ~266 MB from github.com on every from-tarball build. CPM forwards the
+  # GIT_* arguments to FetchContent underneath, so fetch semantics are
+  # unchanged — only the source directory location (and its cacheability)
+  # differs.
+  #
+  # gRPC v1.65.x is the last series that ships protobuf 3.x which is compatible
+  # with the protobuf version opentelemetry-cpp 1.23 expects.
+  # https://github.com/grpc/grpc/releases
+  cpmaddpackage(
+    NAME
+    grpc
+    VERSION
+    1.65.5
+    GIT_REPOSITORY
+    "https://github.com/grpc/grpc.git"
+    GIT_TAG
+    v1.65.5
+    GIT_SHALLOW
+    TRUE
+    GIT_SUBMODULES
+    ${_GRPC_SUBMODULES})
 
   # Abseil-cpp bundled with gRPC v1.65.5 has a bug in its randen HWAES compile
   # options on Apple ARM64: CMake's option deduplication strips the second

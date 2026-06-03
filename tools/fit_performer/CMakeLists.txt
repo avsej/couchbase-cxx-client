@@ -7,15 +7,22 @@ if(NOT TARGET protobuf::libprotobuf)
   message(FATAL_ERROR "protobuf::libprotobuf target not found. Ensure cmake/GrpcProtobuf.cmake was included.")
 endif()
 
-# Fetch the FIT protocol files from the official repository
-include(FetchContent)
-FetchContent_Declare(
+# Fetch the FIT protocol files from the official repository — via CPM (not
+# raw FetchContent) so the source-tarball packaging captures the .proto
+# files into third_party_cache/ and from-tarball builds need no network
+# access for them. DOWNLOAD_ONLY: the repo carries protobuf definitions,
+# there is nothing to add_subdirectory().
+cpmaddpackage(
+  NAME
   fit_protocol
-  GIT_REPOSITORY https://github.com/couchbaselabs/fit-protocol
-  GIT_TAG 1e05d887dbed4e993f942e20424bb923185c72ab
-  GIT_SHALLOW TRUE)
-
-FetchContent_MakeAvailable(fit_protocol)
+  GIT_REPOSITORY
+  "https://github.com/couchbaselabs/fit-protocol"
+  GIT_TAG
+  1e05d887dbed4e993f942e20424bb923185c72ab
+  GIT_SHALLOW
+  TRUE
+  DOWNLOAD_ONLY
+  TRUE)
 
 # generate the protobuf/grpc stuff
 set(PROTO_IN "${fit_protocol_SOURCE_DIR}/operational")

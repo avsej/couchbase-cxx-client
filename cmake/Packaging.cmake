@@ -118,7 +118,12 @@ add_custom_command(
     "${PROJECT_BINARY_DIR}/packaging/${COUCHBASE_CXX_CLIENT_TARBALL_NAME}/tmp/build"
     -DCPM_SOURCE_CACHE="${PROJECT_BINARY_DIR}/packaging/${COUCHBASE_CXX_CLIENT_TARBALL_NAME}/tmp/cache"
     -DCOUCHBASE_CXX_CLIENT_EMBED_MOZILLA_CA_BUNDLE_ROOT="${PROJECT_BINARY_DIR}/packaging/${COUCHBASE_CXX_CLIENT_TARBALL_NAME}/tmp/cache"
-    -DCOUCHBASE_CXX_CLIENT_BUILD_TESTS=OFF -DCOUCHBASE_CXX_CLIENT_BUILD_TOOLS=ON -DCOUCHBASE_CXX_CLIENT_BUILD_DOCS=OFF
+    # BUILD_TESTS=ON so catch2 lands in the CPM cache and ships in the
+    # tarball — nothing is BUILT here (this is a configure-only pass), but
+    # only dependencies that CPM touches at configure time get bundled.
+    # With OFF, every from-tarball build with tests enabled (i.e. all of CI)
+    # silently re-fetched catch2 from github.com at build time.
+    -DCOUCHBASE_CXX_CLIENT_BUILD_TESTS=ON -DCOUCHBASE_CXX_CLIENT_BUILD_TOOLS=ON -DCOUCHBASE_CXX_CLIENT_BUILD_DOCS=OFF
     -DCOUCHBASE_CXX_CLIENT_BUILD_OPENTELEMETRY=ON
     -DCOUCHBASE_CXX_CLIENT_STATIC_BORINGSSL=ON -DCPM_DOWNLOAD_ALL=ON -DCPM_USE_NAMED_CACHE_DIRECTORIES=ON
     -DCPM_USE_LOCAL_PACKAGES=OFF -DCOUCHBASE_CXX_CLIENT_BUILD_STATIC=ON -DCOUCHBASE_CXX_CLIENT_BUILD_SHARED=ON
@@ -128,7 +133,38 @@ add_custom_command(
     "${COUCHBASE_CXX_CLIENT_TARBALL_NAME}/tmp/cache" -wholename "${COUCHBASE_CXX_CLIENT_TARBALL_NAME}/tmp/cache/{}"
     -type f
     | grep -v
-        -e "/benchmark"
+        # Scoped to vendored google-benchmark trees. A bare "/benchmark"
+        # also matched grpc's cmake/benchmark.cmake + benchmark_service.proto
+        # (configure-time file(COPY) inputs) and catch2's src/catch2/benchmark/
+        # library sources — all load-bearing.
+        -e "/third_party/benchmark/"
+        -e "/grpc/doc/"
+        -e "/grpc/examples/"
+        -e "/grpc/src/android"
+        -e "/grpc/src/csharp"
+        -e "/grpc/src/objective-c"
+        -e "/grpc/src/php"
+        -e "/grpc/src/python"
+        -e "/grpc/src/ruby"
+        # Keep grpc/test PROTOS (grpc's configure file(COPY)s several even
+        # with gRPC_BUILD_TESTS=OFF) while dropping the bulky test sources.
+        # NO $-anchors here: this custom command cannot be VERBATIM (the
+        # pipeline relies on shell interpretation of | and >), and the Ninja
+        # generator consumes "$ " as an escaped space — an anchored
+        # "\\.c$" reached grep as the unanchored ".*.c", which silently
+        # dropped every test path containing the letter "c"
+        # (fuzz_config_vars.proto, transport_security_common.proto, ...).
+        -e "/grpc/test/.*\\.cc"
+        -e "/grpc/tools/"
+        -e "/protobuf/conformance"
+        -e "/protobuf/csharp"
+        -e "/protobuf/examples"
+        -e "/protobuf/java"
+        -e "/protobuf/objectivec"
+        -e "/protobuf/php"
+        -e "/protobuf/python"
+        -e "/protobuf/ruby"
+        -e "/protobuf/rust"
         -e "/opentelemetry.*/functional"
         -e "/opentelemetry.*/install"
         -e "/opentelemetry.*/test"
