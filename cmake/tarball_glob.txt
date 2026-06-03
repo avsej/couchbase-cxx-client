@@ -128,9 +128,4 @@ catch2/*/catch2/src/**/*
 grpc/*/grpc/**/*.hpp
 grpc/*/grpc/**/*.h.in
 grpc/*/grpc/**/*.def
-# Linker version-scripts consumed via LINK_DEPENDS/--version-script. protobuf's
-# libprotobuf{,-lite,c}.map and zlib's zlib.map are build prerequisites whenever
-# the linker probe (protobuf_HAVE_LD_VERSION_SCRIPT) succeeds — true on GNU ld
-# (rocky9 et al.). Missing them aborts the build with "No rule to make target
-# .../src/libprotobuf.map" before any object compiles.
 grpc/*/grpc/**/*.map
