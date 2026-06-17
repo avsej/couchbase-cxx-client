@@ -203,6 +203,23 @@ contains_mutation(const std::optional<std::vector<doc_record>>& mutated_ids,
   });
 }
 
+/**
+ * Drives a single transactional get-multi operation: fetch N documents and, where there is
+ * evidence of read skew, resolve it to return a consistent snapshot.
+ *
+ * This implements the algorithm in the "ExtGetMulti" transactions spec
+ * (couchbase-transactions-specs/transactions-get-multi.md). The spec is written as a set of
+ * function-like sections that call one another; the methods here mirror those sections:
+ *   - fetch_multiple_documents()  -> "Fetching multiple documents"
+ *   - fetch_individual_document() -> "Fetching an individual document"
+ *   - disambiguate_results()      -> "Document disambiguation"
+ *   - resolve_read_skew()         -> "Read skew resolution"
+ * The driving loop (spec "GetMulti" / "Implementation") is realised asynchronously: each fetch
+ * round completes into disambiguate_results(), which either finishes the operation or schedules a
+ * further round via retry()/reset_and_retry(). The spec's control-flow signals (Continue, Retry,
+ * ResetAndRetry, Completed, BoundExceeded) are expressed as those direct method calls rather than
+ * as returned values.
+ */
 class get_multi_operation : public std::enable_shared_from_this<get_multi_operation>
 {
 public:
@@ -280,6 +297,10 @@ public:
     }
   }
 
+  /**
+   * Realises the spec's "Retry" signal: refetch the given subset of specs (retaining the rest of
+   * the operation state and the current phase), then re-run disambiguation when they complete.
+   */
   void retry(std::queue<get_multi_spec> specs)
   {
     to_fetch_ = std::move(specs);
@@ -287,6 +308,10 @@ public:
     fetch_multiple_documents();
   }
 
+  /**
+   * Realises the spec's "ResetAndRetry" signal: discard the fetched results and refetch every
+   * original spec from scratch (the state is too complex to resolve incrementally).
+   */
   void reset_and_retry()
   {
     std::queue<get_multi_spec> to_fetch;
@@ -309,6 +334,13 @@ public:
     invoke_callback();
   }
 
+  /**
+   * Implements the spec's "Read skew resolution" section. Reaches here only when exactly one other
+   * transaction T1 is involved in the fetched documents. Fetches T1's ATR entry and, based on its
+   * state and the current phase, either: returns the documents as-is (T1 not committed), refetches
+   * the documents we missed were in T1 (committed, "SubsequentToFirstDocFetch"/"DiscoveredDocsInT1"
+   * branches), disambiguates a missing ATR entry, or resets and retries.
+   */
   void resolve_read_skew()
   {
     std::string other_attempt_id;
@@ -451,6 +483,12 @@ public:
       });
   }
 
+  /**
+   * Implements the spec's "Document disambiguation" section. Runs once a fetch round has completed.
+   * Counts how many distinct other transactions the fetched documents are involved in: zero means
+   * no detectable read skew (done); exactly one proceeds to read-skew resolution; two or more is
+   * too complex to resolve and resets. Also enforces the operation deadline (see spec "Timeouts").
+   */
   void disambiguate_results()
   {
     if (std::chrono::steady_clock::now() >= deadline_) {
@@ -483,6 +521,13 @@ public:
     }
   }
 
+  /**
+   * Implements the spec's "Fetching an individual document" section. Performs a raw lookupIn for
+   * the document body and transactional metadata (explicitly not a MAV read), runs the
+   * forward-compatibility checks the normal get path would, and records the result. As each fetch
+   * completes it pulls the next queued spec, and once the round is drained it advances the deadline
+   * per the mode and hands off to disambiguate_results().
+   */
   void fetch_individual_document(const get_multi_spec& spec)
   {
     auto handler = [spec, self = shared_from_this()](const std::exception_ptr& error,
@@ -560,6 +605,11 @@ public:
       });
   }
 
+  /**
+   * Implements the spec's "Fetching multiple documents" section. Schedules the queued specs to be
+   * fetched concurrently, with no more than default_number_of_concurrent_requests in flight at
+   * once; each completing fetch starts the next, so the cap is maintained without a barrier.
+   */
   void fetch_multiple_documents()
   {
     std::size_t requests_scheduled{ 0 };
