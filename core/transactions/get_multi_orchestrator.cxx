@@ -293,7 +293,11 @@ public:
     for (const auto& spec : specs_) {
       to_fetch.emplace(spec);
     }
+    // Restore one slot per spec before refetching: results are stored by spec index, so the
+    // container must stay sized to the spec count. A bare clear() would leave size() at 0 and the
+    // subsequent index assignments from the refetch handlers would be out of bounds.
     results_.clear();
+    results_.resize(specs_.size());
     if (phase_ != get_multi_phase::first_doc_fetch) {
       phase_ = get_multi_phase::subsequent_to_first_doc_fetch;
     }
@@ -364,6 +368,14 @@ public:
             }
           }
           if (attempt) {
+            // Reading T1's ATR entry must run the GETS_READING_ATR forward-compatibility check, as
+            // the normal MAV get path does. The raw get_multi fetch performs no ATR read, so this
+            // check would otherwise be skipped entirely.
+            if (auto fc_err = check_forward_compat(forward_compat_stage::GETS_READING_ATR,
+                                                   attempt->forward_compat());
+                fc_err) {
+              return self->invoke_callback(std::make_exception_ptr(fc_err.value()));
+            }
             auto state = attempt->state();
 
             if (state == attempt_state::PENDING || state == attempt_state::ABORTED) {
@@ -372,12 +384,26 @@ public:
 
             if (state == attempt_state::COMMITTED) {
               if (self->phase_ == get_multi_phase::subsequent_to_first_doc_fetch) {
+                // The read-skew victims are documents we fetched WITHOUT T1's metadata (e.g. read
+                // before T1 committed) yet which T1's ATR entry records as mutated. They must be
+                // re-fetched to obtain a consistent snapshot. Mirror the reference SDK: build this
+                // set from the docs not fetched as part of T1 and filter by T1's ATR document list
+                // -- not from the docs that happen to already carry T1's metadata (those are the
+                // ones we have already resolved, not the stale ones).
                 std::vector<get_multi_result> were_in_t1;
                 for (auto& result : self->results_) {
-                  if (result.has_transactional_metadata() &&
-                      (contains_mutation(attempt->inserted_ids(), result.spec.id) ||
-                       contains_mutation(attempt->replaced_ids(), result.spec.id) ||
-                       contains_mutation(attempt->removed_ids(), result.spec.id))) {
+                  if (!result.doc_exists()) {
+                    continue;
+                  }
+                  const auto txn_id = result.extract_transaction_id();
+                  const bool fetched_as_part_of_t1 =
+                    txn_id.has_value() && txn_id->attempt == other_attempt_id;
+                  if (fetched_as_part_of_t1) {
+                    continue;
+                  }
+                  if (contains_mutation(attempt->inserted_ids(), result.spec.id) ||
+                      contains_mutation(attempt->replaced_ids(), result.spec.id) ||
+                      contains_mutation(attempt->removed_ids(), result.spec.id)) {
                     were_in_t1.emplace_back(result);
                   }
                 }
@@ -462,11 +488,17 @@ public:
     auto handler = [spec, self = shared_from_this()](const std::exception_ptr& error,
                                                      std::optional<transaction_get_result> res) {
       if (res) {
-        auto forward_compat_err =
-          check_forward_compat(forward_compat_stage::GET_MULTI_GET, res->links().forward_compat());
-        if (forward_compat_err) {
-          self->invoke_callback(std::make_exception_ptr(forward_compat_err.value()));
-          return;
+        // The raw fetch does not perform MAV, so the forward-compatibility checks the normal get
+        // path would run must be done here. Per spec, run two checks in order: GET_MULTI_GET
+        // ("GM_G", so newer clients can block getMulti specifically) then GETS ("G", which older
+        // clients use and which anything blocking get likely needs to block getMulti too).
+        for (const auto stage :
+             { forward_compat_stage::GET_MULTI_GET, forward_compat_stage::GETS }) {
+          if (auto forward_compat_err = check_forward_compat(stage, res->links().forward_compat());
+              forward_compat_err) {
+            self->invoke_callback(std::make_exception_ptr(forward_compat_err.value()));
+            return;
+          }
         }
         self->handle_individual_document_success(spec, std::move(res));
       } else {
@@ -494,11 +526,38 @@ public:
         self->disambiguate_results();
       }
     };
-    if (use_replicas_) {
-      attempt_->get_replica_from_preferred_server_group(spec.id, std::move(handler));
-    } else {
-      attempt_->get_optional(spec.id, std::move(handler));
-    }
+    // get_multi must fetch the raw document body and transactional metadata with a plain lookupIn
+    // -- explicitly NOT a MAV read, which would perform its own ATR lookup and resolution and rob
+    // the orchestrator of the metadata it needs to detect and resolve read skew itself. Adapt
+    // get_doc's classified-error callback into the (exception, result) form the handler expects,
+    // following the spec's per-document error handling: a not-found/unretrievable document is
+    // reported as absent rather than as a failure.
+    attempt_->get_doc(
+      spec.id,
+      use_replicas_,
+      [handler = std::move(handler)](std::optional<error_class> ec,
+                                     std::optional<external_exception> cause,
+                                     std::optional<std::string> message,
+                                     std::optional<transaction_get_result> res) mutable {
+        if (res) {
+          return handler(nullptr, std::move(res));
+        }
+        if (!ec || ec == FAIL_DOC_NOT_FOUND || cause == DOCUMENT_NOT_FOUND_EXCEPTION ||
+            cause == DOCUMENT_UNRETRIEVABLE_EXCEPTION) {
+          return handler(nullptr, std::nullopt);
+        }
+        auto err = transaction_operation_failed(
+          ec.value(), message.value_or("error fetching document in get_multi"));
+        if (cause) {
+          err.cause(cause.value());
+        }
+        if (ec == FAIL_EXPIRY) {
+          err = err.expired();
+        } else if (ec == FAIL_HARD) {
+          err = err.no_rollback();
+        }
+        return handler(std::make_exception_ptr(err), std::nullopt);
+      });
   }
 
   void fetch_multiple_documents()
