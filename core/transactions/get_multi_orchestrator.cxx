@@ -492,10 +492,15 @@ public:
   void disambiguate_results()
   {
     if (std::chrono::steady_clock::now() >= deadline_) {
-      return invoke_callback(std::make_exception_ptr(
-        transaction_operation_failed(error_class::FAIL_EXPIRY,
-                                     "timeout while fetching multiple documents")
-          .expired()));
+      // The read-skew resolution bound has been exceeded (spec "Global signal handling" for a
+      // BoundExceeded signal). Disambiguation is only entered once a fetch round has fully
+      // completed, so results_ holds an entry for every spec. Per the spec, when we have something
+      // for every document we return it as a best-effort snapshot -- which may still contain read
+      // skew we ran out of time to resolve -- rather than failing the operation. Any genuine
+      // per-document fetch error recorded in results_ is still surfaced by the completion callback.
+      // (A document that could not be fetched within the bound at all is handled in the fetch path,
+      // where the bound is enforced per individual document.)
+      return completed();
     }
 
     std::set<transaction_id> transaction_ids{};
