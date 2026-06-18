@@ -318,6 +318,26 @@ transaction_context::handle_error(const std::exception_ptr& err, txn_complete_ca
                                "got rollback-able exception, rolling back");
       try {
         current_attempt_context_->rollback();
+      } catch (const transaction_operation_failed& er_rollback) {
+        cleanup().add_attempt(current_attempt_context_);
+        // If the auto-rollback itself expired, that expiry is the transaction's terminal state and
+        // supersedes the original failure: the expiration is tracked as internal state (the
+        // behaviour expected of an ExtThreadSafety implementation). Otherwise throw the original
+        // error, as before.
+        if (er_rollback.to_raise() == EXPIRED) {
+          CB_ATTEMPT_CTX_LOG_TRACE(current_attempt_context_,
+                                   "auto rollback expired, raising expiry: {}",
+                                   er_rollback.what());
+          return callback(er_rollback.get_final_exception(*this), std::nullopt);
+        }
+        CB_ATTEMPT_CTX_LOG_TRACE(
+          current_attempt_context_,
+          "got error \"{}\" while auto rolling back, throwing original error",
+          er_rollback.what(),
+          er.what());
+        auto final = er.get_final_exception(*this);
+        assert(final);
+        return callback(final, std::nullopt);
       } catch (const std::exception& er_rollback) {
         cleanup().add_attempt(current_attempt_context_);
         CB_ATTEMPT_CTX_LOG_TRACE(
