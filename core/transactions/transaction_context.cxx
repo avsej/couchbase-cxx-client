@@ -320,19 +320,26 @@ transaction_context::handle_error(const std::exception_ptr& err, txn_complete_ca
         current_attempt_context_->rollback();
       } catch (const transaction_operation_failed& er_rollback) {
         cleanup().add_attempt(current_attempt_context_);
-        // If the auto-rollback itself expired, that expiry is the transaction's terminal state and
-        // supersedes the original failure: the expiration is tracked as internal state (the
-        // behaviour expected of an ExtThreadSafety implementation). Otherwise throw the original
-        // error, as before.
-        if (er_rollback.to_raise() == EXPIRED) {
+        // Per the transactions design doc ("Exit points" / auto-rollback rules), the error raised
+        // by a failed auto-rollback depends on how the rollback was carried out:
+        //
+        //  - KV-mode auto-rollback drives the ATR/document rollback itself. When it cannot finish
+        //    and the attempt expires it bails out of expiry-overtime mode, but the application
+        //    cares about the ORIGINAL error that provoked the rollback - not that the subsequent
+        //    cleanup also ran out of time. Re-raise the original error (with retry suppressed).
+        //
+        //  - Query-mode rollback is performed by issuing a ROLLBACK statement. An expiry reported
+        //    by that operation is the transaction's authoritative terminal state, which a
+        //    thread-safe implementation tracks as such, so it is surfaced as EXPIRED.
+        if (er_rollback.to_raise() == EXPIRED && current_attempt_context_->in_query_mode()) {
           CB_ATTEMPT_CTX_LOG_TRACE(current_attempt_context_,
-                                   "auto rollback expired, raising expiry: {}",
+                                   "query rollback expired, raising expiry: {}",
                                    er_rollback.what());
           return callback(er_rollback.get_final_exception(*this), std::nullopt);
         }
         CB_ATTEMPT_CTX_LOG_TRACE(
           current_attempt_context_,
-          "got error \"{}\" while auto rolling back, throwing original error",
+          "got error \"{}\" while auto rolling back, throwing original error \"{}\"",
           er_rollback.what(),
           er.what());
         auto final = er.get_final_exception(*this);
@@ -342,7 +349,7 @@ transaction_context::handle_error(const std::exception_ptr& err, txn_complete_ca
         cleanup().add_attempt(current_attempt_context_);
         CB_ATTEMPT_CTX_LOG_TRACE(
           current_attempt_context_,
-          "got error \"{}\" while auto rolling back, throwing original error",
+          "got error \"{}\" while auto rolling back, throwing original error \"{}\"",
           er_rollback.what(),
           er.what());
         auto final = er.get_final_exception(*this);
