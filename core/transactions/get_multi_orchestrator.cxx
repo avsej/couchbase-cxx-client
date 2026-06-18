@@ -83,27 +83,26 @@ struct get_multi_spec {
 };
 
 // TODO(SA): I believe it should be accessible as an object directly
+// Identifies the transaction attempt a document is staged in. Identity is the (transaction,
+// attempt) pair only: the per-mutation operation id is deliberately NOT part of it. Read-skew
+// detection groups the fetched documents by the *transaction* they belong to (spec "Document
+// disambiguation"), and two documents staged by the same attempt always carry different operation
+// ids -- including the operation id here would make them count as separate transactions and send
+// disambiguation down the "two or more transactions, too complex" reset-and-retry path forever.
 struct transaction_id {
   std::string transaction;
   std::string attempt;
-  std::string operation;
 
   auto operator==(const transaction_id& other) const -> bool
   {
-    return transaction == other.transaction && attempt == other.attempt &&
-           operation == other.operation;
+    return transaction == other.transaction && attempt == other.attempt;
   }
   auto operator<(const transaction_id& other) const -> bool
   {
     if (transaction != other.transaction) {
       return transaction < other.transaction;
     }
-
-    if (attempt != other.attempt) {
-      return attempt < other.attempt;
-    }
-
-    return operation < other.operation;
+    return attempt < other.attempt;
   }
 };
 
@@ -130,13 +129,15 @@ struct get_multi_result {
     if (const auto& result = get_result; result) {
       auto txn = result->links().staged_transaction_id();
       auto atmpt = result->links().staged_attempt_id();
+      // The operation id is required to be present as a sanity check -- a document genuinely staged
+      // in a transaction always carries the full (transaction, attempt, operation) triplet -- but
+      // it is not retained, as it does not form part of the transaction's identity.
       auto op = result->links().staged_operation_id();
 
       if (txn && atmpt && op) {
         return transaction_id{
           txn.value(),
           atmpt.value(),
-          op.value(),
         };
       }
     }
