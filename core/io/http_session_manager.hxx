@@ -485,8 +485,11 @@ public:
     for (auto& [type, sessions] : idle_sessions) {
       for (auto& s : sessions) {
         if (s) {
-          s->reset_idle();
-          s.reset();
+          // stop() (not just reset_idle()) so the read armed by set_idle() is
+          // torn down: reset_idle() only cancels the idle timer, leaving the
+          // pending async read alive, which keeps a shared_ptr to the session
+          // and prevents the io_context from draining on close.
+          s->stop();
         }
       }
     }
