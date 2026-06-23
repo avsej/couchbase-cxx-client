@@ -59,7 +59,7 @@ public:
     , body_{ std::move(body) }
     , rows_{ io_, ROW_BUFFER_SIZE }
     , options_{ options }
-    , lexer_{ pointer_expression, options_.lexer_depth }
+    , lexer_{ pointer_expression, options_.lexer_depth, options_.max_row_bytes }
   {
   }
 
@@ -68,11 +68,14 @@ public:
     lexer_.on_metadata_header_complete(
       [handler = std::move(handler)](auto ec, auto meta_header) mutable {
         // Trim any whitespace from the end
-        meta_header.erase(meta_header.find_last_not_of(" \t\f\v\n\r") + 1);
+        auto last_non_ws = meta_header.find_last_not_of(" \t\f\v\n\r");
+        if (last_non_ws != std::string::npos) {
+          meta_header.erase(last_non_ws + 1);
+        }
 
         // The metadata header can end with an open `[` (opening bracket for pointer expression
         // array). If that's the case, close the array and the response object
-        if (meta_header[meta_header.length() - 1] == '[') {
+        if (!meta_header.empty() && meta_header[meta_header.length() - 1] == '[') {
           meta_header.append("]}");
         }
         handler(meta_header, ec);

@@ -35,6 +35,38 @@ TEST_CASE("unit: row_streamer_options has streaming defaults", "[unit]")
   REQUIRE(opts.max_row_bytes == std::size_t{ 64 } * 1024 * 1024);
 }
 
+TEST_CASE("unit: row_streamer fails a single row larger than the ceiling", "[unit]")
+{
+  asio::io_context io;
+  // One row whose padding exceeds a deliberately tiny ceiling.
+  std::string big(std::size_t{ 64 } * 1024, 'X');
+  std::string doc = R"({"results":[{"p":")" + big + R"("}],"status":"success"})";
+  auto body = test::utils::make_cached_response_body(io, doc);
+  couchbase::core::row_streamer_options opts{};
+  opts.max_row_bytes = std::size_t{ 4 } * 1024; // tiny ceiling
+  couchbase::core::row_streamer streamer{ io, std::move(body), "/results/^", opts };
+
+  std::error_code seen_ec{};
+  std::function<void()> pump = [&]() {
+    streamer.next_row([&](std::string row, std::error_code ec) {
+      if (ec) {
+        seen_ec = ec;
+        return;
+      }
+      if (row.empty()) {
+        return;
+      }
+      pump();
+    });
+  };
+  streamer.start([&](std::string, std::error_code) {
+    pump();
+  });
+  io.run();
+
+  REQUIRE(seen_ec); // ceiling exceeded => non-empty terminal error, no OOM
+}
+
 TEST_CASE("unit: row_streamer yields rows then clean end over cached body", "[unit]")
 {
   asio::io_context io;
@@ -56,7 +88,9 @@ TEST_CASE("unit: row_streamer yields rows then clean end over cached body", "[un
       pump();
     });
   };
-  streamer.start([&](std::string /*preamble*/, std::error_code) { pump(); });
+  streamer.start([&](std::string /*preamble*/, std::error_code) {
+    pump();
+  });
   io.run();
 
   REQUIRE(rows.size() == 2);
