@@ -857,3 +857,76 @@ TEST_CASE("integration: streaming query is memory-bounded", "[integration]")
 
   cluster.close().get();
 }
+
+TEST_CASE("integration: cancelling a streaming query mid-stream is clean", "[integration]")
+{
+  test::utils::integration_test_guard integration;
+  if (!integration.cluster_version().supports_collections()) {
+    SKIP("cluster does not support the query service used by this test");
+  }
+  auto cluster = integration.public_cluster();
+
+  auto [err, result] = cluster.query_stream(streaming_padding_query, {}).get();
+  REQUIRE_SUCCESS(err.ec());
+
+  // Pull a few rows to confirm the stream is live.
+  for (int i = 0; i < 3; ++i) {
+    auto [rerr, row] = result.next().get();
+    REQUIRE_SUCCESS(rerr.ec());
+    REQUIRE(row.has_value());
+  }
+
+  // Cancel mid-stream — must not hang and must not corrupt memory.
+  // Under an ASan/TSan build (controller-owned) this also validates no
+  // use-after-free or data-race on the internal streaming machinery.
+  result.cancel();
+
+  // Dropping `result` here; the destructor must be safe after cancel().
+  cluster.close().get();
+}
+
+TEST_CASE("integration: streaming query surfaces a query error", "[integration]")
+{
+  test::utils::integration_test_guard integration;
+  if (!integration.cluster_version().supports_collections()) {
+    SKIP("cluster does not support the query service used by this test");
+  }
+  auto cluster = integration.public_cluster();
+
+  // A syntactically-valid statement that references a nonexistent keyspace so
+  // the query service rejects it at runtime with a keyspace-not-found error.
+  // This verifies that query_stream() propagates query-level errors to the
+  // caller rather than silently swallowing them.
+  //
+  // NOTE: The rows-THEN-trailing-error path (rows emitted before the error
+  // JSON key) is additionally covered by the unit test in
+  // test_unit_query_stream.cxx:
+  //   "query_stream surfaces a trailing query error after rows"
+  const std::string error_query =
+    "SELECT * FROM `nonexistent_bucket_that_does_not_exist_xyz` LIMIT 1";
+
+  auto [err, result] = cluster.query_stream(error_query, {}).get();
+
+  if (err.ec()) {
+    // Error surfaced at dispatch time (pre-row): acceptable.
+    REQUIRE(err.ec());
+  } else {
+    // Error surfaced through the row stream: drain until we see it.
+    bool saw_error = false;
+    while (true) {
+      auto [rerr, row] = result.next().get();
+      if (rerr.ec()) {
+        // Terminal error delivered via next() — correct behavior.
+        saw_error = true;
+        break;
+      }
+      if (!row.has_value()) {
+        // Clean end-of-stream with no error is not acceptable for this query.
+        break;
+      }
+    }
+    REQUIRE(saw_error);
+  }
+
+  cluster.close().get();
+}
