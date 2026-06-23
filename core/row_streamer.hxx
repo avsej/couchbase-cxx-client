@@ -19,6 +19,8 @@
 
 #include "utils/movable_function.hxx"
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -34,12 +36,20 @@ namespace couchbase::core
 class row_streamer_impl;
 class http_response_body;
 
+struct row_streamer_options {
+  std::uint32_t lexer_depth{ 4 };
+  std::size_t high_water_bytes{ std::size_t{ 2 } * 1024 * 1024 };
+  std::size_t low_water_bytes{ std::size_t{ 512 } * 1024 };
+  std::size_t max_row_bytes{ std::size_t{ 64 } * 1024 * 1024 };
+};
+
 class row_streamer
 {
 public:
   row_streamer(asio::io_context& io,
                http_response_body body,
-               const std::string& pointer_expression);
+               const std::string& pointer_expression,
+               row_streamer_options options = {});
 
   /**
    *  Starts the row stream and returns all the metadata preceding the first row. This typically

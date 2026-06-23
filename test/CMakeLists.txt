@@ -73,6 +73,7 @@ unit_test(transaction_logging)
 unit_test(transaction_utils)
 unit_test(transaction_error_class)
 unit_test(waitable_op_list)
+unit_test(row_streamer)
 
 integration_test(examples)
 transaction_test(examples)

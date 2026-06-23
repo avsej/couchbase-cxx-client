@@ -50,15 +50,17 @@ class row_streamer_impl : public std::enable_shared_from_this<row_streamer_impl>
 public:
   static constexpr std::size_t ROW_BUFFER_SIZE{ 100 };
   static constexpr std::size_t ROW_BUFFER_FEED_THRESHOLD{ ROW_BUFFER_SIZE * 3 / 4 };
-  static constexpr std::uint32_t LEXER_DEPTH{ 4 };
+  [[maybe_unused]] static constexpr std::uint32_t LEXER_DEPTH{ 4 };
 
   row_streamer_impl(asio::io_context& io,
                     http_response_body body,
-                    const std::string& pointer_expression)
+                    const std::string& pointer_expression,
+                    row_streamer_options options)
     : io_{ io }
     , body_{ std::move(body) }
     , rows_{ io_, ROW_BUFFER_SIZE }
-    , lexer_{ pointer_expression, LEXER_DEPTH }
+    , options_{ options }
+    , lexer_{ pointer_expression, options_.lexer_depth }
   {
   }
 
@@ -196,6 +198,7 @@ private:
   asio::experimental::concurrent_channel<void(std::error_code,
                                               std::variant<std::string, row_stream_end_signal>)>
     rows_;
+  row_streamer_options options_;
   std::atomic_size_t buffered_row_count_{ 0 };
   std::atomic_bool received_all_data_{ false };
   std::atomic_bool feeding_{ false };
@@ -208,8 +211,9 @@ private:
 
 row_streamer::row_streamer(asio::io_context& io,
                            couchbase::core::http_response_body body,
-                           const std::string& pointer_expression)
-  : impl_{ std::make_shared<row_streamer_impl>(io, std::move(body), pointer_expression) }
+                           const std::string& pointer_expression,
+                           row_streamer_options options)
+  : impl_{ std::make_shared<row_streamer_impl>(io, std::move(body), pointer_expression, options) }
 {
 }
 
