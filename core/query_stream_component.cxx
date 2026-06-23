@@ -255,9 +255,9 @@ private:
     bool invoked{ false };
   };
 
-  static void invoke(const std::shared_ptr<callback_state_type>& state,
-                     query_stream stream,
-                     std::error_code ec)
+  void invoke(const std::shared_ptr<callback_state_type>& state,
+              query_stream stream,
+              std::error_code ec)
   {
     query_stream_component::handler_type handler;
     {
