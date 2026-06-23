@@ -80,7 +80,11 @@ public:
         }
         handler(meta_header, ec);
       });
-    lexer_.on_row([self = shared_from_this()](std::string&& row) -> utils::json::stream_control {
+    lexer_.on_row([weak = weak_from_this()](std::string&& row) -> utils::json::stream_control {
+      auto self = weak.lock();
+      if (!self) {
+        return utils::json::stream_control::stop;
+      }
       auto row_len = row.size();
       // Account the row against the back-pressure budget *synchronously*, as it is handed to the
       // channel. A concurrent_channel completes async_send immediately while it has spare capacity
@@ -106,8 +110,12 @@ public:
       });
       return utils::json::stream_control::next_row;
     });
-    lexer_.on_complete([self = shared_from_this()](
+    lexer_.on_complete([weak = weak_from_this()](
                          std::error_code ec, std::size_t /*number_of_rows*/, std::string&& meta) {
+      auto self = weak.lock();
+      if (!self) {
+        return;
+      }
       row_stream_end_signal signal{ ec, std::move(meta) };
       self->rows_.async_send({}, std::move(signal), [self](auto ec) {
         if (ec) {
