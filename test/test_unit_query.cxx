@@ -21,8 +21,10 @@
 
 #include "core/operations/document_query.hxx"
 #include "core/operations/query_response_parsing.hxx"
+#include "core/utils/binary.hxx"
 
 #include <couchbase/codec/tao_json_serializer.hxx>
+#include <couchbase/query_row.hxx>
 
 #include <tao/json/value.hpp>
 
@@ -159,4 +161,13 @@ TEST_CASE("unit: map_query_error maps prepared-not-found (4040) to retriable", "
   meta.errors = std::vector{ p };
   auto ec = couchbase::core::operations::map_query_error(meta, 200);
   REQUIRE(ec); // a non-empty error code, same as the buffered path produced
+}
+
+TEST_CASE("unit: query_row decodes JSON content", "[unit]")
+{
+  auto bytes = couchbase::core::utils::to_binary(std::string{ R"({"a":7})" });
+  couchbase::query_row row{ bytes };
+  auto v = row.content_as<couchbase::codec::tao_json_serializer, tao::json::value>();
+  REQUIRE(v.at("a").as<int>() == 7);
+  REQUIRE(row.content_as_binary() == bytes);
 }
