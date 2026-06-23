@@ -1716,6 +1716,18 @@ cluster::query_stream(
   operations::query_request request,
   utils::movable_function<void(couchbase::core::query_stream, std::error_code)>&& handler) const
 {
+  // Mirror operations::query_request::encode_to: use_replica is only honored when the cluster
+  // advertises read-from-replica support, otherwise the request is rejected up front.
+  if (request.use_replica.has_value()) {
+    auto [ec, manager] = impl_->http_session_manager();
+    if (ec) {
+      return handler({}, ec);
+    }
+    if (!manager->configuration_capabilities().supports_read_from_replica()) {
+      return handler({}, errc::common::feature_not_available);
+    }
+  }
+
   auto default_timeout = impl_->origin().second.options().default_timeout_for(service_type::query);
   http_component http{ impl_->io_context(), core_sdk_shim{ *this } };
   query_stream_component component{ impl_->io_context(), std::move(http), default_timeout };

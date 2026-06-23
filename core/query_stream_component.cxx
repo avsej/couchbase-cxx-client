@@ -111,6 +111,12 @@ build_streaming_query_body(const operations::query_request& request,
         break;
     }
   }
+  if (request.use_replica.has_value()) {
+    // The capability guard (errc::common::feature_not_available when the cluster does not support
+    // read-from-replica) is enforced before dispatch in cluster::query_stream, where the live
+    // configuration capabilities are reachable; here we only emit the encoded field.
+    body["use_replica"] = request.use_replica.value() ? "on" : "off";
+  }
   if (request.max_parallelism.has_value()) {
     body["max_parallelism"] = std::to_string(request.max_parallelism.value());
   }
