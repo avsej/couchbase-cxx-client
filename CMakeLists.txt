@@ -182,6 +182,7 @@ set(couchbase_cxx_client_FILES
     core/impl/public_bucket.cxx
     core/impl/public_cluster.cxx
     core/impl/public_logger.cxx
+    core/impl/public_query_stream_result.cxx
     core/impl/public_scan_result.cxx
     core/impl/public_transaction_get_result.cxx
     core/impl/query.cxx

@@ -25,6 +25,7 @@
 
 #include <couchbase/codec/tao_json_serializer.hxx>
 #include <couchbase/query_row.hxx>
+#include <couchbase/query_stream_result.hxx>
 
 #include <tao/json/value.hpp>
 
@@ -170,4 +171,11 @@ TEST_CASE("unit: query_row decodes JSON content", "[unit]")
   auto v = row.content_as<couchbase::codec::tao_json_serializer, tao::json::value>();
   REQUIRE(v.at("a").as<int>() == 7);
   REQUIRE(row.content_as_binary() == bytes);
+}
+
+TEST_CASE("unit: query_stream_result default-constructs and cancels safely", "[unit]")
+{
+  couchbase::query_stream_result empty{};
+  empty.cancel(); // no-op on empty handle, must not crash
+  REQUIRE_FALSE(empty.signature().has_value());
 }
