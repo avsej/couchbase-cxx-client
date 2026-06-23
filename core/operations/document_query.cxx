@@ -16,12 +16,10 @@
  */
 
 #include "document_query.hxx"
+#include "query_response_parsing.hxx"
 
 #include "core/cluster_options.hxx"
 #include "core/logger/logger.hxx"
-#include "core/operations/management/error_utils.hxx"
-#include "core/utils/contains_string.hxx"
-#include "core/utils/duration_parser.hxx"
 #include "core/utils/json.hxx"
 
 #include <couchbase/error_codes.hxx>
@@ -236,69 +234,16 @@ query_request::make_response(error_context::query&& ctx, const encoded_response_
       response.ctx.ec = errc::common::parsing_failure;
       return response;
     }
-    if (const auto* i = payload.find("requestID"); i != nullptr) {
-      response.meta.request_id = i->get_string();
+    response.meta = parse_query_meta(payload);
+
+    if (response.ctx.client_context_id != response.meta.client_context_id) {
+      CB_LOG_WARNING(R"(unexpected clientContextID returned by service: "{}", expected "{}")",
+                     response.meta.client_context_id,
+                     response.ctx.client_context_id);
     }
 
-    if (const auto* i = payload.find("clientContextID"); i != nullptr) {
-      response.meta.client_context_id = i->get_string();
-      if (response.ctx.client_context_id != response.meta.client_context_id) {
-        CB_LOG_WARNING(R"(unexpected clientContextID returned by service: "{}", expected "{}")",
-                       response.meta.client_context_id,
-                       response.ctx.client_context_id);
-      }
-    }
-    if (const auto* s = payload.find("status"); s != nullptr) {
-      response.meta.status = payload.at("status").get_string();
-    }
-    if (const auto* s = payload.find("signature"); s != nullptr) {
-      response.meta.signature = couchbase::core::utils::json::generate(*s);
-    }
     if (const auto* c = payload.find("prepared"); c != nullptr) {
       response.prepared = c->get_string();
-    }
-    if (const auto* p = payload.find("profile"); p != nullptr) {
-      response.meta.profile = couchbase::core::utils::json::generate(*p);
-    }
-
-    if (const auto* m = payload.find("metrics"); m != nullptr) {
-      query_response::query_metrics meta_metrics{};
-      meta_metrics.result_count = m->at("resultCount").get_unsigned();
-      meta_metrics.result_size = m->at("resultSize").get_unsigned();
-      meta_metrics.elapsed_time = utils::parse_duration(m->at("elapsedTime").get_string());
-      meta_metrics.execution_time = utils::parse_duration(m->at("executionTime").get_string());
-      meta_metrics.sort_count = m->template optional<std::uint64_t>("sortCount").value_or(0);
-      meta_metrics.mutation_count =
-        m->template optional<std::uint64_t>("mutationCount").value_or(0);
-      meta_metrics.error_count = m->template optional<std::uint64_t>("errorCount").value_or(0);
-      meta_metrics.warning_count = m->template optional<std::uint64_t>("warningCount").value_or(0);
-      response.meta.metrics.emplace(meta_metrics);
-    }
-
-    if (const auto* e = payload.find("errors"); e != nullptr) {
-      std::vector<couchbase::core::operations::query_response::query_problem> problems{};
-      for (const auto& err : e->get_array()) {
-        couchbase::core::operations::query_response::query_problem problem;
-        problem.code = err.at("code").get_unsigned();
-        problem.message = err.at("msg").get_string();
-        if (const auto* reason = err.find("reason"); reason != nullptr && reason->is_object()) {
-          problem.reason = reason->optional<std::uint64_t>("code");
-          problem.retry = reason->optional<bool>("retry");
-        }
-        problems.emplace_back(problem);
-      }
-      response.meta.errors.emplace(problems);
-    }
-
-    if (const auto* w = payload.find("warnings"); w != nullptr) {
-      std::vector<couchbase::core::operations::query_response::query_problem> problems{};
-      for (const auto& warn : w->get_array()) {
-        couchbase::core::operations::query_response::query_problem problem;
-        problem.code = warn.at("code").get_unsigned();
-        problem.message = warn.at("msg").get_string();
-        problems.emplace_back(problem);
-      }
-      response.meta.warnings.emplace(problems);
     }
 
     if (const auto* r = payload.find("results"); r != nullptr) {
@@ -341,22 +286,10 @@ query_request::make_response(error_context::query&& ctx, const encoded_response_
       if (response.meta.errors && !response.meta.errors->empty()) {
         response.ctx.first_error_code = response.meta.errors->front().code;
         response.ctx.first_error_message = response.meta.errors->front().message;
+
+        // Prepared-statement codes that require cache eviction + retry must be handled
+        // before delegating to the pure map_query_error classifier.
         switch (response.ctx.first_error_code) {
-          case 1065: /* IKey: "service.io.request.unrecognized_parameter" */
-            if ((response.ctx.first_error_message.find("Unrecognized parameter in request") !=
-                 std::string::npos) &&
-                (response.ctx.first_error_message.find("preserve_expiry") != std::string::npos)) {
-              response.ctx.ec = errc::common::feature_not_available;
-            } else {
-              response.ctx.ec = errc::common::invalid_argument;
-            }
-            break;
-          case 1080: /* IKey: "timeout" */
-            response.ctx.ec = errc::common::unambiguous_timeout;
-            break;
-          case 3000: /* IKey: "parse.syntax_error" */
-            response.ctx.ec = errc::common::parsing_failure;
-            break;
           case 4040: /* IKey: "plan.build_prepared.no_such_name" */
           case 4050: /* IKey: "plan.build_prepared.unrecognized_prepared" */
           case 4070: /* IKey: "plan.build_prepared.decoding" */
@@ -364,74 +297,11 @@ query_request::make_response(error_context::query&& ctx, const encoded_response_
               ctx_->cache.erase(statement);
             }
             throw couchbase::core::priv::retry_http_request{};
-          case 4060: /* IKey: "plan.build_prepared.no_such_name" */
-          case 4080: /* IKey: "plan.build_prepared.name_encoded_plan_mismatch" */
-          case 4090: /* IKey: "plan.build_prepared.name_not_in_encoded_plan" */
-            response.ctx.ec = errc::query::prepared_statement_failure;
-            break;
-          case 4300: /* IKey: "plan.new_index_already_exists" */
-            response.ctx.ec = errc::common::index_exists;
-            break;
-          case 5000: /* IKey: "Internal Error" */
-            if (utils::contains_string(response.ctx.first_error_message, "index", true) &&
-                utils::contains_string(response.ctx.first_error_message, "already exist", true)) {
-              response.ctx.ec = errc::common::index_exists;
-            } else if (utils::contains_string(response.ctx.first_error_message,
-                                              "Index does not exist") ||
-                       (utils::contains_string(response.ctx.first_error_message, "index", true) &&
-                        utils::contains_string(
-                          response.ctx.first_error_message, "not found", true))) {
-              response.ctx.ec = errc::common::index_not_found;
-            } else if (response.ctx.first_error_message.find("Bucket Not Found") !=
-                       std::string::npos) {
-              response.ctx.ec = errc::common::bucket_not_found;
-            }
-            break;
-          case 12009: /* IKey: "datastore.couchbase.DML_error" */
-            if (response.ctx.first_error_message.find("CAS mismatch") != std::string::npos) {
-              response.ctx.ec = errc::common::cas_mismatch;
-            } else {
-              switch (response.meta.errors->front().reason.value_or(0)) {
-                case 12033:
-                  response.ctx.ec = errc::common::cas_mismatch;
-                  break;
-                case 17014:
-                  response.ctx.ec = errc::key_value::document_not_found;
-                  break;
-                case 17012:
-                  response.ctx.ec = errc::key_value::document_exists;
-                  break;
-                default:
-                  response.ctx.ec = errc::query::dml_failure;
-                  break;
-              }
-            }
-            break;
-
-          case 12004: /* IKey: "datastore.couchbase.primary_idx_not_found" */
-          case 12016: /* IKey: "datastore.couchbase.index_not_found" */
-            response.ctx.ec = errc::common::index_not_found;
-            break;
-          case 13014: /* IKey: "datastore.couchbase.insufficient_credentials" */
-            response.ctx.ec = errc::common::authentication_failure;
-            break;
           default:
-            if ((response.ctx.first_error_code >= 12000 && response.ctx.first_error_code < 13000) ||
-                (response.ctx.first_error_code >= 14000 && response.ctx.first_error_code < 15000)) {
-              response.ctx.ec = errc::query::index_failure;
-            } else if (response.ctx.first_error_code >= 4000 &&
-                       response.ctx.first_error_code < 5000) {
-              response.ctx.ec = errc::query::planning_failure;
-            }
             break;
         }
-        if (!response.ctx.ec) {
-          auto common_ec = management::extract_common_query_error_code(
-            response.ctx.first_error_code, response.ctx.first_error_message);
-          if (common_ec) {
-            response.ctx.ec = common_ec.value();
-          }
-        }
+
+        response.ctx.ec = map_query_error(response.meta, encoded.status_code);
       }
       if (!response.ctx.ec) {
         CB_LOG_TRACE("Unexpected error returned by query engine: client_context_id=\"{}\", body={}",

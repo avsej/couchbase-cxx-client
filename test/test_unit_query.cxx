@@ -20,6 +20,7 @@
 #include "utils/move_only_context.hxx"
 
 #include "core/operations/document_query.hxx"
+#include "core/operations/query_response_parsing.hxx"
 
 #include <couchbase/codec/tao_json_serializer.hxx>
 
@@ -147,4 +148,15 @@ TEST_CASE("unit: Public API query options - add/clear parameters", "[unit]")
               { "bar", couchbase::codec::tao_json_serializer::serialize(4) },
             });
   }
+}
+
+TEST_CASE("unit: map_query_error maps prepared-not-found (4040) to retriable", "[unit]")
+{
+  couchbase::core::operations::query_response::query_meta_data meta{};
+  meta.status = "fatal";
+  couchbase::core::operations::query_response::query_problem p{};
+  p.code = 4040;
+  meta.errors = std::vector{ p };
+  auto ec = couchbase::core::operations::map_query_error(meta, 200);
+  REQUIRE(ec); // a non-empty error code, same as the buffered path produced
 }

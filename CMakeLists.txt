@@ -285,6 +285,7 @@ set(couchbase_cxx_client_FILES
     core/operations/document_mutate_in.cxx
     core/operations/document_prepend.cxx
     core/operations/document_query.cxx
+    core/operations/query_response_parsing.cxx
     core/operations/document_remove.cxx
     core/operations/document_replace.cxx
     core/operations/document_search.cxx
