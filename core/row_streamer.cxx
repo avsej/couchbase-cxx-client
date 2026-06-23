@@ -49,7 +49,6 @@ class row_streamer_impl : public std::enable_shared_from_this<row_streamer_impl>
 {
 public:
   static constexpr std::size_t ROW_BUFFER_SIZE{ 100 };
-  static constexpr std::size_t ROW_BUFFER_FEED_THRESHOLD{ ROW_BUFFER_SIZE * 3 / 4 };
   [[maybe_unused]] static constexpr std::uint32_t LEXER_DEPTH{ 4 };
 
   row_streamer_impl(asio::io_context& io,
@@ -79,8 +78,8 @@ public:
         handler(meta_header, ec);
       });
     lexer_.on_row([self = shared_from_this()](std::string&& row) -> utils::json::stream_control {
-      self->rows_.async_send({}, std::move(row), [self](auto ec) {
-        self->buffered_row_count_++;
+      auto row_len = row.size();
+      self->rows_.async_send({}, std::move(row), [self, row_len](auto ec) {
         if (ec) {
           if (ec != asio::experimental::error::channel_closed &&
               ec != asio::experimental::error::channel_cancelled) {
@@ -89,6 +88,7 @@ public:
           }
           return;
         }
+        self->buffered_bytes_ += row_len;
       });
       return utils::json::stream_control::next_row;
     });
@@ -117,7 +117,6 @@ public:
     }
     rows_.async_receive(
       [self = shared_from_this(), handler = std::move(handler)](auto ec, auto row) mutable {
-        self->buffered_row_count_--;
         if (ec) {
           if (ec == asio::experimental::error::channel_closed ||
               ec == asio::experimental::error::channel_cancelled) {
@@ -134,10 +133,18 @@ public:
           return handler({}, signal.ec);
         }
         auto row_content = std::get<std::string>(row);
+        const auto row_bytes = row_content.size();
         handler(std::move(row_content), {});
 
-        // After receiving a row check if more data needs to be fed into the lexer
-        self->maybe_feed_lexer();
+        // Decrement buffered bytes and resume feeding if below the low-water mark.
+        if (self->buffered_bytes_ >= row_bytes) {
+          self->buffered_bytes_ -= row_bytes;
+        } else {
+          self->buffered_bytes_ = 0;
+        }
+        if (self->should_resume()) {
+          self->maybe_feed_lexer();
+        }
         return;
       });
   }
@@ -156,9 +163,14 @@ public:
   }
 
 private:
+  [[nodiscard]] auto should_resume() const -> bool
+  {
+    return buffered_bytes_ < options_.low_water_bytes;
+  }
+
   void maybe_feed_lexer()
   {
-    if (feeding_ || received_all_data_ || buffered_row_count_ > ROW_BUFFER_FEED_THRESHOLD) {
+    if (feeding_ || received_all_data_ || buffered_bytes_ > options_.high_water_bytes) {
       return;
     }
 
@@ -199,7 +211,7 @@ private:
                                               std::variant<std::string, row_stream_end_signal>)>
     rows_;
   row_streamer_options options_;
-  std::atomic_size_t buffered_row_count_{ 0 };
+  std::atomic_size_t buffered_bytes_{ 0 };
   std::atomic_bool received_all_data_{ false };
   std::atomic_bool feeding_{ false };
   std::optional<std::string> metadata_header_;
