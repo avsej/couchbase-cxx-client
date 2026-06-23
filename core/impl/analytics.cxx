@@ -18,19 +18,26 @@
 #include "analytics.hxx"
 
 #include "core/analytics_scan_consistency.hxx"
+#include "core/analytics_stream.hxx"
+#include "core/cluster.hxx"
 #include "core/operations/document_analytics.hxx"
 #include "core/utils/binary.hxx"
+#include "internal_analytics_stream_result.hxx"
 
 #include <couchbase/analytics_metrics.hxx>
 #include <couchbase/analytics_options.hxx>
 #include <couchbase/analytics_result.hxx>
 #include <couchbase/analytics_scan_consistency.hxx>
 #include <couchbase/analytics_status.hxx>
+#include <couchbase/analytics_stream_result.hxx>
 #include <couchbase/analytics_warning.hxx>
 #include <couchbase/codec/encoded_value.hxx>
+#include <couchbase/error.hxx>
 
 #include <cstddef>
+#include <memory>
 #include <optional>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -143,6 +150,22 @@ build_result(core::operations::analytics_response& resp) -> analytics_result
     },
     map_rows(resp),
   };
+}
+
+void
+dispatch_analytics_stream(const core::cluster& core,
+                          core::operations::analytics_request request,
+                          analytics_stream_handler&& handler)
+{
+  core.analytics_query_stream(
+    std::move(request),
+    [handler = std::move(handler)](core::analytics_stream stream, std::error_code ec) mutable {
+      if (ec) {
+        return handler(couchbase::error{ ec, "failed to start the streaming analytics query" }, {});
+      }
+      auto internal = std::make_shared<internal_analytics_stream_result>(std::move(stream));
+      handler({}, analytics_stream_result{ std::move(internal) });
+    });
 }
 
 auto

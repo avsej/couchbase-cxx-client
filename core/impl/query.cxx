@@ -254,7 +254,8 @@ reconstruct_query_envelope(const operations::query_response& resp) -> std::strin
     std::vector<tao::json::value> out;
     out.reserve(items.size());
     for (const auto& p : items) {
-      out.emplace_back(tao::json::value{ { "code", p.code }, { "msg", p.message } });
+      auto entry = tao::json::value{ { "code", p.code }, { "msg", p.message } };
+      out.push_back(std::move(entry));
     }
     return out;
   };

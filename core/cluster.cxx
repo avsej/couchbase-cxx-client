@@ -41,6 +41,7 @@
 #include "core/io/config_tracker.hxx"
 #endif
 #include "cluster_label_listener.hxx"
+#include "core/analytics_stream_component.hxx"
 #include "core/core_sdk_shim.hxx"
 #include "core/http_component.hxx"
 #include "core/logger/logger.hxx"
@@ -1731,6 +1732,18 @@ cluster::query_stream(
   auto default_timeout = impl_->origin().second.options().default_timeout_for(service_type::query);
   http_component http{ impl_->io_context(), core_sdk_shim{ *this } };
   query_stream_component component{ impl_->io_context(), std::move(http), default_timeout };
+  component.execute(std::move(request), std::move(handler));
+}
+
+void
+cluster::analytics_query_stream(
+  operations::analytics_request request,
+  utils::movable_function<void(couchbase::core::analytics_stream, std::error_code)>&& handler) const
+{
+  auto default_timeout =
+    impl_->origin().second.options().default_timeout_for(service_type::analytics);
+  http_component http{ impl_->io_context(), core_sdk_shim{ *this } };
+  analytics_stream_component component{ impl_->io_context(), std::move(http), default_timeout };
   component.execute(std::move(request), std::move(handler));
 }
 

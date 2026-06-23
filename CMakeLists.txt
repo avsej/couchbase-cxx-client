@@ -94,6 +94,8 @@ set(couchbase_cxx_client_FILES
     core/agent_group.cxx
     core/agent_group_config.cxx
     core/analytics_query_options.cxx
+    core/analytics_stream.cxx
+    core/analytics_stream_component.cxx
     core/app_telemetry_address.cxx
     core/app_telemetry_meter.cxx
     core/app_telemetry_reporter.cxx
@@ -179,6 +181,7 @@ set(couchbase_cxx_client_FILES
     core/impl/observe_seqno.cxx
     core/impl/phrase_query.cxx
     core/impl/prefix_query.cxx
+    core/impl/public_analytics_stream_result.cxx
     core/impl/public_bucket.cxx
     core/impl/public_cluster.cxx
     core/impl/public_logger.cxx
@@ -272,6 +275,7 @@ set(couchbase_cxx_client_FILES
     core/metrics/logging_meter.cxx
     core/metrics/meter_wrapper.cxx
     core/n1ql_query_options.cxx
+    core/operations/analytics_response_parsing.cxx
     core/operations/document_analytics.cxx
     core/operations/document_append.cxx
     core/operations/document_decrement.cxx

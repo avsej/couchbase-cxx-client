@@ -42,6 +42,7 @@ class cluster_impl;
 class cluster_label_listener;
 class bucket;
 class query_stream;
+class analytics_stream;
 
 namespace tracing
 {
@@ -130,6 +131,15 @@ public:
    */
   void query_stream(o::query_request request,
                     mf<void(query_stream, std::error_code)>&& handler) const;
+
+  /**
+   * Dispatches an analytics query as a streaming request, resolving the handler with an
+   * analytics_stream handle once the response preamble (signature + upfront errors) has been
+   * parsed. Rows are then pulled lazily from the handle, so the full response body is never
+   * buffered.
+   */
+  void analytics_query_stream(o::analytics_request request,
+                              mf<void(analytics_stream, std::error_code)>&& handler) const;
   void execute(o::remove_request request, mf<void(o::remove_response)>&& handler) const;
   void execute(o::replace_request request, mf<void(o::replace_response)>&& handler) const;
   void execute(o::search_request request, mf<void(o::search_response)>&& handler) const;

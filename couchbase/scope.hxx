@@ -229,6 +229,37 @@ public:
     -> std::future<std::pair<error, analytics_result>>;
 
   /**
+   * Performs a streaming query against the analytics services.
+   *
+   * The handler resolves as soon as the response preamble has been parsed; rows are then pulled
+   * lazily from the @ref analytics_stream_result, so the full result is never buffered in memory.
+   *
+   * @param statement the analytics query statement.
+   * @param options options to customize the query request.
+   * @param handler the handler that implements @ref analytics_stream_handler
+   *
+   * @since 1.0.0
+   * @volatile
+   */
+  void analytics_query_stream(std::string statement,
+                              const analytics_options& options,
+                              analytics_stream_handler&& handler) const;
+
+  /**
+   * Performs a streaming query against the analytics services.
+   *
+   * @param statement the analytics query statement.
+   * @param options options to customize the query request.
+   * @return future object that carries the streaming result handle
+   *
+   * @since 1.0.0
+   * @volatile
+   */
+  [[nodiscard]] auto analytics_query_stream(std::string statement,
+                                            const analytics_options& options = {}) const
+    -> std::future<std::pair<error, analytics_stream_result>>;
+
+  /**
    * Provides access to search index management services at the scope level
    *
    * @return a manager instance

@@ -659,3 +659,97 @@ TEST_CASE("integration: public API analytics query using both named and position
   REQUIRE(row["fieldB"].as<std::uint32_t>() == 20);
   REQUIRE(row["fieldC"].as<std::string>() == "foo");
 }
+
+namespace
+{
+// Generates `count` rows entirely inside the analytics engine without touching any dataset, which
+// makes it a deterministic source for the streaming tests below.
+auto
+streaming_analytics_statement(std::size_t count) -> std::string
+{
+  return fmt::format("SELECT i AS n FROM array_range(0, {}) AS i", count);
+}
+} // namespace
+
+TEST_CASE("integration: streaming analytics yields rows lazily", "[integration]")
+{
+  test::utils::integration_test_guard integration;
+
+  if (integration.ctx.deployment == test::utils::deployment_type::elixir) {
+    SKIP("elixir deployment does not support analytics");
+  }
+  if (!integration.cluster_version().supports_analytics()) {
+    SKIP("cluster does not support analytics");
+  }
+
+  auto cluster = integration.public_cluster();
+
+  constexpr std::size_t total_rows = 2000;
+  auto [err, result] =
+    cluster.analytics_query_stream(streaming_analytics_statement(total_rows)).get();
+  REQUIRE_SUCCESS(err.ec());
+
+  // Pull only the first 5 rows, then abandon the rest.
+  int pulled = 0;
+  for (int i = 0; i < 5; ++i) {
+    auto [rerr, row] = result.next().get();
+    REQUIRE_SUCCESS(rerr.ec());
+    REQUIRE(row.has_value());
+    auto v = row->content_as<couchbase::codec::tao_json_serializer, tao::json::value>();
+    REQUIRE(v.find("n") != nullptr);
+    ++pulled;
+  }
+  REQUIRE(pulled == 5);
+  result.cancel(); // abandon the remaining rows
+
+  cluster.close().get();
+}
+
+TEST_CASE("integration: streaming analytics matches buffered analytics", "[integration]")
+{
+  test::utils::integration_test_guard integration;
+
+  if (integration.ctx.deployment == test::utils::deployment_type::elixir) {
+    SKIP("elixir deployment does not support analytics");
+  }
+  if (!integration.cluster_version().supports_analytics()) {
+    SKIP("cluster does not support analytics");
+  }
+
+  auto cluster = integration.public_cluster();
+
+  constexpr std::size_t total_rows = 1000;
+  const auto statement = streaming_analytics_statement(total_rows);
+
+  // Buffered reference.
+  auto [berr, buffered] = cluster.analytics_query(statement).get();
+  REQUIRE_SUCCESS(berr.ec());
+  const auto& expected_rows = buffered.rows_as_binary();
+  REQUIRE(expected_rows.size() == total_rows);
+
+  // Drain the entire result through the streaming API and compare row-by-row.
+  auto [serr, result] = cluster.analytics_query_stream(statement).get();
+  REQUIRE_SUCCESS(serr.ec());
+
+  std::vector<couchbase::codec::binary> streamed_rows;
+  while (true) {
+    auto [rerr, row] = result.next().get();
+    REQUIRE_SUCCESS(rerr.ec());
+    if (!row.has_value()) {
+      break;
+    }
+    streamed_rows.push_back(row->content_as_binary());
+  }
+  REQUIRE(streamed_rows.size() == expected_rows.size());
+
+  // The buffered and streaming paths reconstruct each row from the same source JSON, so the bytes
+  // must match exactly (analytics preserves the engine's row ordering here).
+  REQUIRE(streamed_rows == expected_rows);
+
+  // Metadata resolves once the stream has been fully drained.
+  auto [merr, meta] = result.meta_data().get();
+  REQUIRE_SUCCESS(merr.ec());
+  REQUIRE(meta.status() == couchbase::analytics_status::success);
+
+  cluster.close().get();
+}
