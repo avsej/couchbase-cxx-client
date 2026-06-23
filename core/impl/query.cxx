@@ -22,8 +22,17 @@
 
 #include "core/cluster.hxx"
 #include "core/error_context/transaction_op_error_context.hxx"
+#include "core/free_form_http_request.hxx"
 #include "core/operations/document_query.hxx"
+#include "core/query_stream.hxx"
 #include "core/utils/binary.hxx"
+#include "core/utils/json.hxx"
+#include "error.hxx"
+#include "internal_query_stream_result.hxx"
+#include "query.hxx"
+
+#include <spdlog/fmt/bundled/core.h>
+#include <tao/json/value.hpp>
 
 namespace couchbase::core::impl
 {
@@ -199,6 +208,100 @@ build_query_request(std::string statement,
     }
   }
   return request;
+}
+
+namespace
+{
+// Re-serialises a buffered query_response into the JSON envelope produced by the query engine, so
+// it can be replayed through an in-memory core::query_stream. Used only for the adhoc==false
+// fallback, where the prepared-statement machinery requires the buffered path.
+auto
+reconstruct_query_envelope(const operations::query_response& resp) -> std::string
+{
+  tao::json::value payload = tao::json::empty_object;
+  payload["requestID"] = resp.meta.request_id;
+  payload["clientContextID"] = resp.meta.client_context_id;
+  payload["status"] = resp.meta.status;
+  if (resp.meta.signature.has_value()) {
+    payload["signature"] = utils::json::parse(resp.meta.signature.value());
+  }
+  if (resp.meta.profile.has_value()) {
+    payload["profile"] = utils::json::parse(resp.meta.profile.value());
+  }
+
+  std::vector<tao::json::value> results;
+  results.reserve(resp.rows.size());
+  for (const auto& row : resp.rows) {
+    results.emplace_back(utils::json::parse(row));
+  }
+  payload["results"] = std::move(results);
+
+  if (resp.meta.metrics.has_value()) {
+    const auto& m = resp.meta.metrics.value();
+    payload["metrics"] = {
+      { "resultCount", m.result_count },
+      { "resultSize", m.result_size },
+      { "elapsedTime", fmt::format("{}ns", m.elapsed_time.count()) },
+      { "executionTime", fmt::format("{}ns", m.execution_time.count()) },
+      { "sortCount", m.sort_count },
+      { "mutationCount", m.mutation_count },
+      { "errorCount", m.error_count },
+      { "warningCount", m.warning_count },
+    };
+  }
+
+  auto problems_to_json = [](const std::vector<operations::query_response::query_problem>& items) {
+    std::vector<tao::json::value> out;
+    out.reserve(items.size());
+    for (const auto& p : items) {
+      out.emplace_back(tao::json::value{ { "code", p.code }, { "msg", p.message } });
+    }
+    return out;
+  };
+  if (resp.meta.errors.has_value()) {
+    payload["errors"] = problems_to_json(resp.meta.errors.value());
+  }
+  if (resp.meta.warnings.has_value()) {
+    payload["warnings"] = problems_to_json(resp.meta.warnings.value());
+  }
+
+  return utils::json::generate(payload);
+}
+} // namespace
+
+void
+dispatch_query_stream(const core::cluster& core,
+                      core::operations::query_request request,
+                      query_stream_handler&& handler)
+{
+  if (!request.adhoc) {
+    // Prepared statements rely on buffered retry/replay; stream their rows from an in-memory copy
+    // so the public semantics are identical to the adhoc path.
+    auto& io = core.io_context();
+    core.execute(std::move(request),
+                 [&io, handler = std::move(handler)](operations::query_response resp) mutable {
+                   if (resp.ctx.ec) {
+                     return handler(make_error(resp.ctx), {});
+                   }
+                   auto body = core::http_response_body::create_in_memory(
+                     io, reconstruct_query_envelope(resp));
+                   auto stream = core::query_stream{ io, std::move(body) };
+                   auto internal =
+                     std::make_shared<internal_query_stream_result>(std::move(stream));
+                   handler({}, query_stream_result{ std::move(internal) });
+                 });
+    return;
+  }
+
+  core.query_stream(
+    std::move(request),
+    [handler = std::move(handler)](core::query_stream stream, std::error_code ec) mutable {
+      if (ec) {
+        return handler(couchbase::error{ ec, "failed to start the streaming query" }, {});
+      }
+      auto internal = std::make_shared<internal_query_stream_result>(std::move(stream));
+      handler({}, query_stream_result{ std::move(internal) });
+    });
 }
 
 auto

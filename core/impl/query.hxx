@@ -21,6 +21,11 @@
 
 #include <couchbase/query_options.hxx>
 
+namespace couchbase::core
+{
+class cluster;
+} // namespace couchbase::core
+
 namespace couchbase::core::impl
 {
 auto
@@ -32,4 +37,16 @@ build_query_request(std::string statement,
 
 auto
 build_result(operations::query_response& resp) -> query_result;
+
+/**
+ * Dispatches a query as a streaming request and resolves the handler with a query_stream_result.
+ *
+ * Adhoc requests take the lazy streaming path. Prepared statements (request.adhoc == false) are
+ * not streamed; they fall back to the buffered query() path and their rows are replayed through an
+ * in-memory query_stream so callers observe identical semantics.
+ */
+void
+dispatch_query_stream(const core::cluster& core,
+                      core::operations::query_request request,
+                      query_stream_handler&& handler);
 } // namespace couchbase::core::impl

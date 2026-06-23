@@ -20,6 +20,7 @@
 #include "utils/move_only_context.hxx"
 #include "utils/wait_until.hxx"
 
+#include "core/logger/logger.hxx"
 #include "core/operations/document_analytics.hxx"
 #include "core/operations/document_append.hxx"
 #include "core/operations/document_decrement.hxx"
@@ -42,6 +43,9 @@
 #include <couchbase/lookup_in_specs.hxx>
 
 #include <tao/json/from_string.hpp>
+
+#include <cstdint>
+#include <fstream>
 
 TEST_CASE("integration: trivial non-data query", "[integration]")
 {
@@ -750,4 +754,106 @@ TEST_CASE("integration: public API query using both named and positional paramet
   REQUIRE(row["fieldA"].as<std::uint32_t>() == 10);
   REQUIRE(row["fieldB"].as<std::uint32_t>() == 20);
   REQUIRE(row["fieldC"].as<std::string>() == "foo");
+}
+
+namespace
+{
+// The N1QL query below produces ~519 MB of result rows (10^5 rows, each carrying a 5.2 KB
+// padding_data field). It executes entirely in the query engine without touching any bucket,
+// which makes it a deterministic stress test for streaming back-pressure.
+const std::string streaming_padding_query =
+  R"(SELECT REPEAT("ABCDEFGHJIJKLMNOPQRSTUVWXYZ",200) AS padding_data
+     FROM [0] AS dummy
+     UNNEST [0,1,2,3,4,5,6,7,8,9] AS a UNNEST [0,1,2,3,4,5,6,7,8,9] AS b
+     UNNEST [0,1,2,3,4,5,6,7,8,9] AS c UNNEST [0,1,2,3,4,5,6,7,8,9] AS d
+     UNNEST [0,1,2,3,4,5,6,7,8,9] AS e)";
+
+// Reads the peak resident-set size (VmHWM) of the current process, in kilobytes.
+// Returns 0 when /proc/self/status is unavailable (e.g. non-Linux), which makes the
+// memory assertion below a no-op on those platforms.
+auto
+read_peak_rss_kb() -> std::uint64_t
+{
+  std::ifstream status{ "/proc/self/status" };
+  std::string line;
+  while (std::getline(status, line)) {
+    if (line.rfind("VmHWM:", 0) == 0) {
+      std::uint64_t value{ 0 };
+      for (char c : line) {
+        if (c >= '0' && c <= '9') {
+          value = value * 10 + static_cast<std::uint64_t>(c - '0');
+        }
+      }
+      return value;
+    }
+  }
+  return 0;
+}
+} // namespace
+
+TEST_CASE("integration: streaming query yields rows lazily", "[integration]")
+{
+  test::utils::integration_test_guard integration;
+  if (!integration.cluster_version().supports_collections()) {
+    SKIP("cluster does not support the query service used by this test");
+  }
+  auto cluster = integration.public_cluster();
+
+  auto [err, result] = cluster.query_stream(streaming_padding_query, {}).get();
+  REQUIRE_SUCCESS(err.ec());
+
+  // Pull only the first 5 rows of a ~519 MB result, then abandon.
+  int pulled = 0;
+  for (int i = 0; i < 5; ++i) {
+    auto [rerr, row] = result.next().get();
+    REQUIRE_SUCCESS(rerr.ec());
+    REQUIRE(row.has_value());
+    auto v = row->content_as<couchbase::codec::tao_json_serializer, tao::json::value>();
+    REQUIRE(v.find("padding_data") != nullptr);
+    ++pulled;
+  }
+  REQUIRE(pulled == 5);
+  result.cancel(); // abandon the remaining ~519 MB
+
+  cluster.close().get();
+}
+
+TEST_CASE("integration: streaming query is memory-bounded", "[integration]")
+{
+  test::utils::integration_test_guard integration;
+  if (!integration.cluster_version().supports_collections()) {
+    SKIP("cluster does not support the query service used by this test");
+  }
+  auto cluster = integration.public_cluster();
+
+  auto [err, result] = cluster.query_stream(streaming_padding_query, {}).get();
+  REQUIRE_SUCCESS(err.ec());
+
+  const auto rss_before_kb = read_peak_rss_kb();
+
+  // Drain the whole ~519 MB result one row at a time. A buffered query() would materialise the
+  // entire payload (~0.5 GB) in memory; the streaming path must stay bounded by the back-pressure
+  // watermark regardless of how many rows are produced.
+  std::uint64_t row_count{ 0 };
+  while (true) {
+    auto [rerr, row] = result.next().get();
+    REQUIRE_SUCCESS(rerr.ec());
+    if (!row.has_value()) {
+      break;
+    }
+    ++row_count;
+  }
+  REQUIRE(row_count == 100000);
+
+  const auto rss_after_kb = read_peak_rss_kb();
+
+  if (rss_before_kb != 0 && rss_after_kb != 0) {
+    const auto delta_kb =
+      rss_after_kb > rss_before_kb ? rss_after_kb - rss_before_kb : std::uint64_t{ 0 };
+    CB_LOG_INFO("streaming query peak RSS delta: {} KB ({} rows drained)", delta_kb, row_count);
+    // The buffered path would grow RSS by ~0.5 GB. Streaming must stay well under 50 MB.
+    REQUIRE(delta_kb < 50 * 1024);
+  }
+
+  cluster.close().get();
 }
