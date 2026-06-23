@@ -15,6 +15,7 @@
  *   limitations under the License.
  */
 
+#include "core/cluster.hxx"
 #include "core/query_stream.hxx"
 #include "test_helper_streaming.hxx"
 
@@ -84,9 +85,22 @@ TEST_CASE("unit: query_stream surfaces a trailing query error after rows", "[uni
       pump();
     });
   };
-  stream.start([&](std::error_code) { pump(); });
+  stream.start([&](std::error_code) {
+    pump();
+  });
   io.run();
 
   REQUIRE(row_count == 1);
   REQUIRE(end_ec); // trailing error delivered as the terminal next_row result
+}
+
+TEST_CASE("unit: cluster exposes a core query_stream entry point", "[unit]")
+{
+  // Compile-only: the symbol exists with the expected signature.
+  using fn =
+    void (couchbase::core::cluster::*)(couchbase::core::operations::query_request,
+                                       couchbase::core::utils::movable_function<void(
+                                         couchbase::core::query_stream, std::error_code)>&&) const;
+  fn p = &couchbase::core::cluster::query_stream;
+  REQUIRE(p != nullptr);
 }

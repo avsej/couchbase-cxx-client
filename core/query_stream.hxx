@@ -46,6 +46,12 @@ class http_response_body;
 class query_stream
 {
 public:
+  /**
+   * Constructs an empty handle (no underlying stream). Used to carry the "no stream" outcome on
+   * the error path of the dispatch; none of the streaming methods may be called on it.
+   */
+  query_stream() = default;
+
   query_stream(asio::io_context& io, http_response_body body, row_streamer_options options = {});
 
   /**

@@ -82,6 +82,13 @@ public:
       });
     lexer_.on_row([self = shared_from_this()](std::string&& row) -> utils::json::stream_control {
       auto row_len = row.size();
+      // Account the row against the back-pressure budget *synchronously*, as it is handed to the
+      // channel. A concurrent_channel completes async_send immediately while it has spare capacity
+      // and otherwise queues the send until a receiver drains a slot; if we only counted bytes in
+      // the completion handler, a full channel would leave buffered_bytes_ pinned low and let
+      // maybe_feed_lexer() keep pulling from the socket, piling up unbounded pending sends (each
+      // owning a row). Counting here makes the high-water mark observe the true backlog.
+      self->buffered_bytes_ += row_len;
       self->rows_.async_send({}, std::move(row), [self, row_len](auto ec) {
         if (ec) {
           if (ec != asio::experimental::error::channel_closed &&
@@ -89,9 +96,13 @@ public:
             CB_LOG_WARNING(
               "unexpected error while sending to row channel: {} ({})", ec.value(), ec.message());
           }
-          return;
+          // The send never reached a receiver (channel closed/cancelled), so release its budget.
+          if (self->buffered_bytes_ >= row_len) {
+            self->buffered_bytes_ -= row_len;
+          } else {
+            self->buffered_bytes_ = 0;
+          }
         }
-        self->buffered_bytes_ += row_len;
       });
       return utils::json::stream_control::next_row;
     });
