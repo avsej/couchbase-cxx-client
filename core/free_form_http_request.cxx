@@ -19,9 +19,12 @@
 #include "io/http_streaming_response.hxx"
 #include "utils/movable_function.hxx"
 
+#include <asio/io_context.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -38,6 +41,11 @@ public:
   {
   }
 
+  http_response_impl(asio::io_context& io, std::string cached_data)
+    : cached_body_{ io::http_streaming_response_body{ io, nullptr, std::move(cached_data), true } }
+  {
+  }
+
   [[nodiscard]] auto endpoint() const -> std::string
   {
     return {};
@@ -45,11 +53,17 @@ public:
 
   [[nodiscard]] auto status_code() const -> std::uint32_t
   {
+    if (cached_body_) {
+      return 200;
+    }
     return streaming_resp_.status_code();
   }
 
   [[nodiscard]] auto content_length() const -> std::size_t
   {
+    if (cached_body_) {
+      return 0;
+    }
     if (streaming_resp_.headers().find("content-length") == streaming_resp_.headers().end()) {
       return 0;
     }
@@ -58,16 +72,23 @@ public:
 
   void next_body(utils::movable_function<void(std::string, std::error_code)> callback)
   {
+    if (cached_body_) {
+      return cached_body_->next(std::move(callback));
+    }
     return streaming_resp_.body().next(std::move(callback));
   }
 
   void close_body()
   {
+    if (cached_body_) {
+      return cached_body_->close();
+    }
     return streaming_resp_.body().close();
   }
 
 private:
   io::http_streaming_response streaming_resp_;
+  std::optional<io::http_streaming_response_body> cached_body_{};
 };
 
 class buffered_http_response_impl
@@ -141,6 +162,12 @@ http_response::close()
 http_response_body::http_response_body(std::shared_ptr<http_response_impl> impl)
   : impl_{ std::move(impl) }
 {
+}
+
+auto
+http_response_body::create_in_memory(asio::io_context& io, std::string data) -> http_response_body
+{
+  return http_response_body{ std::make_shared<http_response_impl>(io, std::move(data)) };
 }
 
 void

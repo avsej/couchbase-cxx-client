@@ -30,6 +30,11 @@
 #include <system_error>
 #include <vector>
 
+namespace asio
+{
+class io_context;
+} // namespace asio
+
 namespace couchbase
 {
 class retry_strategy;
@@ -77,6 +82,8 @@ class http_response_body
 {
 public:
   explicit http_response_body(std::shared_ptr<http_response_impl> impl);
+
+  static auto create_in_memory(asio::io_context& io, std::string data) -> http_response_body;
 
   void next(utils::movable_function<void(std::string, std::error_code)> callback);
   void cancel();
