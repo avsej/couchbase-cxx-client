@@ -22,11 +22,11 @@
 #include "shared.basic.pb.h"
 #include "shared.content.pb.h"
 
+#include <core/codec/lenient_json_transcoder.hxx>
 #include <core/utils/json.hxx>
 
 #include <couchbase/codec/default_json_transcoder.hxx>
 #include <couchbase/codec/json_transcoder.hxx>
-#include <couchbase/codec/lenient_json_transcoder.hxx>
 #include <couchbase/codec/raw_binary_transcoder.hxx>
 #include <couchbase/codec/raw_json_transcoder.hxx>
 #include <couchbase/codec/raw_string_transcoder.hxx>
