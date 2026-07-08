@@ -31,7 +31,6 @@
 #include "metrics/metrics_reporter.hxx"
 #include "performer.pb.h"
 #include "transactions.commands.pb.h"
-#include "wait_until_ready.hxx"
 
 #include <core/meta/features.hxx>
 #include <core/meta/version.hxx>
@@ -298,61 +297,62 @@ to_bucket(ConnectionPtr conn, std::string name)
 auto
 to_wait_until_ready_options(
   const protocol::sdk::cluster::wait_until_ready::WaitUntilReadyRequest& req)
-  -> fit_cxx::wait_until_ready::options
+  -> std::pair<std::chrono::milliseconds, couchbase::wait_until_ready_options>
 {
   namespace wur = protocol::sdk::cluster::wait_until_ready;
-  namespace wait = fit_cxx::wait_until_ready;
 
-  wait::options opts{};
-  opts.timeout = std::chrono::milliseconds(req.timeoutmillis());
+  const auto timeout = std::chrono::milliseconds(req.timeoutmillis());
+  couchbase::wait_until_ready_options opts{};
   if (!req.has_options()) {
-    return opts;
+    return { timeout, opts };
   }
   const auto& o = req.options();
   if (o.has_desiredstate()) {
     switch (o.desiredstate()) {
       case wur::ONLINE:
-        opts.desired_state = wait::cluster_state::online;
+        opts.desired_state(couchbase::cluster_state::online);
         break;
       case wur::DEGRADED:
-        opts.desired_state = wait::cluster_state::degraded;
+        opts.desired_state(couchbase::cluster_state::degraded);
         break;
       case wur::OFFLINE:
-        opts.desired_state = wait::cluster_state::offline;
+        opts.desired_state(couchbase::cluster_state::offline);
         break;
       default:
         break;
     }
   }
+  std::set<couchbase::service_type> service_types{};
   for (int i = 0; i < o.servicetypes_size(); ++i) {
     switch (o.servicetypes(i)) {
       case wur::KV:
-        opts.service_types.insert(couchbase::service_type::key_value);
+        service_types.insert(couchbase::service_type::key_value);
         break;
       case wur::QUERY:
-        opts.service_types.insert(couchbase::service_type::query);
+        service_types.insert(couchbase::service_type::query);
         break;
       case wur::ANALYTICS:
-        opts.service_types.insert(couchbase::service_type::analytics);
+        service_types.insert(couchbase::service_type::analytics);
         break;
       case wur::SEARCH:
-        opts.service_types.insert(couchbase::service_type::search);
+        service_types.insert(couchbase::service_type::search);
         break;
       case wur::VIEWS:
-        opts.service_types.insert(couchbase::service_type::view);
+        service_types.insert(couchbase::service_type::view);
         break;
       case wur::MANAGER:
-        opts.service_types.insert(couchbase::service_type::management);
+        service_types.insert(couchbase::service_type::management);
         break;
       case wur::EVENTING:
-        opts.service_types.insert(couchbase::service_type::eventing);
+        service_types.insert(couchbase::service_type::eventing);
         break;
       default:
         // e.g. BACKUP and any future service types have no couchbase::service_type.
         break;
     }
   }
-  return opts;
+  opts.service_types(std::move(service_types));
+  return { timeout, opts };
 }
 
 std::string
@@ -2135,8 +2135,8 @@ TxnService::execute_sdk_command(ConnectionPtr conn,
 #endif
     } else if (cluster_cmd.has_wait_until_ready()) {
       auto res = fit_cxx::commands::common::create_new_result();
-      const auto opts = to_wait_until_ready_options(cluster_cmd.wait_until_ready());
-      const auto ec = fit_cxx::wait_until_ready::wait_until_ready(*cluster, opts);
+      const auto [timeout, opts] = to_wait_until_ready_options(cluster_cmd.wait_until_ready());
+      const auto ec = cluster->wait_until_ready(timeout, opts).get().ec();
       if (ec) {
         fit_cxx::commands::common::convert_error_code(ec, res.mutable_sdk()->mutable_exception());
       } else {
@@ -2162,9 +2162,9 @@ TxnService::execute_sdk_command(ConnectionPtr conn,
       batcher->send_result(res);
     } else if (bucket_cmd.has_wait_until_ready()) {
       auto res = fit_cxx::commands::common::create_new_result();
-      const auto opts = to_wait_until_ready_options(bucket_cmd.wait_until_ready());
-      const auto ec = fit_cxx::wait_until_ready::wait_until_ready(
-        *conn->cluster(), bucket_cmd.bucket_name(), opts);
+      const auto [timeout, opts] = to_wait_until_ready_options(bucket_cmd.wait_until_ready());
+      auto bucket = conn->cluster()->bucket(bucket_cmd.bucket_name());
+      const auto ec = bucket.wait_until_ready(timeout, opts).get().ec();
       if (ec) {
         fit_cxx::commands::common::convert_error_code(ec, res.mutable_sdk()->mutable_exception());
       } else {

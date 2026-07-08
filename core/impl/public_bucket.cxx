@@ -22,6 +22,7 @@
 #include "core/tracing/tracer_wrapper.hxx"
 #include "diagnostics.hxx"
 #include "observability_recorder.hxx"
+#include "wait_until_ready.hxx"
 
 #include <couchbase/collection.hxx>
 #include <couchbase/collection_manager.hxx>
@@ -30,6 +31,7 @@
 #include <couchbase/ping_result.hxx>
 #include <couchbase/scope.hxx>
 
+#include <chrono>
 #include <future>
 #include <memory>
 #include <string_view>
@@ -77,6 +79,20 @@ public:
         obs_rec->finish({});
         return handler({}, core::impl::build_result(resp));
       });
+  }
+
+  void wait_until_ready(std::chrono::milliseconds timeout,
+                        const wait_until_ready_options::built& options,
+                        wait_until_ready_handler&& handler) const
+  {
+    return core::impl::wait_until_ready(core_,
+                                        name_,
+                                        timeout,
+                                        options.desired_state,
+                                        core::impl::to_core_service_types(options.service_types),
+                                        [handler = std::move(handler)](std::error_code ec) mutable {
+                                          return handler(couchbase::error{ ec });
+                                        });
   }
 
 private:
@@ -144,6 +160,26 @@ bucket::ping(const couchbase::ping_options& options) const
   auto barrier = std::make_shared<std::promise<std::pair<error, ping_result>>>();
   ping(options, [barrier](auto err, auto result) mutable {
     barrier->set_value({ std::move(err), std::move(result) });
+  });
+  return barrier->get_future();
+}
+
+void
+bucket::wait_until_ready(std::chrono::milliseconds timeout,
+                         const couchbase::wait_until_ready_options& options,
+                         couchbase::wait_until_ready_handler&& handler) const
+{
+  return impl_->wait_until_ready(timeout, options.build(), std::move(handler));
+}
+
+auto
+bucket::wait_until_ready(std::chrono::milliseconds timeout,
+                         const couchbase::wait_until_ready_options& options) const
+  -> std::future<error>
+{
+  auto barrier = std::make_shared<std::promise<error>>();
+  wait_until_ready(timeout, options, [barrier](auto err) mutable {
+    barrier->set_value(std::move(err));
   });
   return barrier->get_future();
 }

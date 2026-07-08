@@ -21,7 +21,9 @@
 #include <couchbase/collection_manager.hxx>
 #include <couchbase/ping_options.hxx>
 #include <couchbase/scope.hxx>
+#include <couchbase/wait_until_ready_options.hxx>
 
+#include <chrono>
 #include <memory>
 
 namespace couchbase
@@ -107,6 +109,42 @@ public:
    */
   [[nodiscard]] auto ping(const ping_options& options = {}) const
     -> std::future<std::pair<error, ping_result>>;
+
+  /**
+   * Waits until the desired state of the bucket is reached.
+   *
+   * In addition to pinging the bucket's services, this waits until the bucket's vbucket map is
+   * fully placed -- every vbucket has its active and all replica copies assigned to a node. That is
+   * the readiness durable writes require and that a freshly created bucket does not satisfy
+   * immediately.
+   *
+   * @param timeout the maximum time to wait for readiness.
+   * @param options custom options to change the default behavior.
+   * @param handler the handler that implements @ref wait_until_ready_handler.
+   *
+   * @since 1.4.0
+   * @committed
+   */
+  void wait_until_ready(std::chrono::milliseconds timeout,
+                        const wait_until_ready_options& options,
+                        wait_until_ready_handler&& handler) const;
+
+  /**
+   * Waits until the desired state of the bucket is reached.
+   *
+   * @see wait_until_ready(std::chrono::milliseconds, const wait_until_ready_options&,
+   * wait_until_ready_handler&&) const
+   *
+   * @param timeout the maximum time to wait for readiness.
+   * @param options custom options to change the default behavior.
+   * @return future object that carries result of the operation.
+   *
+   * @since 1.4.0
+   * @committed
+   */
+  [[nodiscard]] auto wait_until_ready(std::chrono::milliseconds timeout,
+                                      const wait_until_ready_options& options = {}) const
+    -> std::future<error>;
 
   /**
    * Provides access to the collection management services.
