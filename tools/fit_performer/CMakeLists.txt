@@ -85,9 +85,7 @@ set(FIT_PERFORMER_SOURCES
     src/service.cxx
     src/service.hxx
     src/stream.hxx
-    src/utils.hxx
-    src/wait_until_ready.cxx
-    src/wait_until_ready.hxx)
+    src/utils.hxx)
 add_executable(fit_performer ${FIT_PERFORMER_SOURCES} ${PROTO_SOURCES} ${GRPC_SOURCES})
 
 set_target_properties(fit_performer PROPERTIES POSITION_INDEPENDENT_CODE ON)
