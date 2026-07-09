@@ -3800,7 +3800,8 @@ attempt_context_impl::create_staged_insert_error_handler(const core::document_id
                       .retry());
                 }
               } else {
-                return error_handler(*ec3, *err_message, std::forward<Handler>(cb));
+                return error_handler(
+                  *ec3, err_message.value_or(""), std::forward<Handler>(cb));
               }
             });
         });
