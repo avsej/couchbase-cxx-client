@@ -162,73 +162,16 @@ error_class_from_response(const Resp& resp)
   return {};
 }
 
-/**
- * @brief Specialization of error_class_from_response for subdocument lookup responses.
- *
- * Unlike most KV operations, a @c lookup_in response may carry a success error code at the
- * document level while still reporting individual spec failures.  Specifically, the server
- * returns @c subdoc_multi_path_failure when the document exists but one or more of the requested
- * paths are absent.  This happens for every non-transacted document fetched during a transaction,
- * because the transaction XATTRs (@c txn.id, @c txn.atr, etc.) do not exist on those documents.
- *
- * The generic @c error_class_from_response template only inspects @c ctx.ec() and therefore
- * misses these per-field failures.  This specialization additionally checks
- * @c ctx.first_error_index() and maps the corresponding @c fields[i].ec to the appropriate
- * @c error_class value (@c FAIL_PATH_NOT_FOUND, @c FAIL_PATH_ALREADY_EXISTS, or @c FAIL_OTHER).
- *
- * @param resp The @c lookup_in_response to classify.
- * @return The @c error_class that best represents the failure, or @c std::nullopt on success.
- */
-template<>
-inline std::optional<error_class>
-error_class_from_response(const core::operations::lookup_in_response& resp)
-{
-  // Document-level errors are still reported via ctx.ec()
-  if (resp.ctx.ec()) {
-    if (resp.ctx.ec() == couchbase::errc::key_value::document_not_found) {
-      return FAIL_DOC_NOT_FOUND;
-    }
-    if (resp.ctx.ec() == couchbase::errc::key_value::document_exists) {
-      return FAIL_DOC_ALREADY_EXISTS;
-    }
-    if (resp.ctx.ec() == couchbase::errc::common::cas_mismatch) {
-      return FAIL_CAS_MISMATCH;
-    }
-    if (resp.ctx.ec() == couchbase::errc::common::unambiguous_timeout ||
-        resp.ctx.ec() == couchbase::errc::common::temporary_failure ||
-        resp.ctx.ec() == couchbase::errc::key_value::durable_write_in_progress) {
-      return FAIL_TRANSIENT;
-    }
-    if (resp.ctx.ec() == couchbase::errc::key_value::durability_ambiguous ||
-        resp.ctx.ec() == couchbase::errc::common::ambiguous_timeout ||
-        resp.ctx.ec() == couchbase::errc::common::request_canceled) {
-      return FAIL_AMBIGUOUS;
-    }
-    // Note: unlike the generic template, value_too_large is intentionally not mapped to
-    // FAIL_ATR_FULL here.  FAIL_ATR_FULL describes an ATR write that cannot grow; it is
-    // meaningless for a lookup (read), so such a code is classified as FAIL_OTHER.
-    return FAIL_OTHER;
-  }
-  // No document-level error. Check per-field errors: for subdoc_multi_path_failure
-  // the server returns success at the document level but per-spec errors for each
-  // missing path.  Use first_error_index stored in the context to find the first
-  // failed spec and map its error code to an error class.
-  if (const auto& idx = resp.ctx.first_error_index(); idx.has_value()) {
-    if (*idx < resp.fields.size()) {
-      const auto& field_ec = resp.fields[*idx].ec;
-      if (field_ec == couchbase::errc::key_value::path_not_found) {
-        return FAIL_PATH_NOT_FOUND;
-      }
-      if (field_ec == couchbase::errc::key_value::path_exists) {
-        return FAIL_PATH_ALREADY_EXISTS;
-      }
-      if (field_ec) {
-        return FAIL_OTHER;
-      }
-    }
-  }
-  return {};
-}
+// A lookup_in used to fetch a document plus its transaction XATTRs is deliberately NOT given a
+// dedicated error_class_from_response specialization. On a non-transacted document the txn.* paths
+// are simply absent: the server returns subdoc_multi_path_failure, which the codec surfaces as a
+// success at the document level (ctx.ec() is empty) with the missing paths recorded per-field. The
+// generic error_class_from_response therefore classifies such a read as success, and the caller
+// decides whether the document is in a transaction by inspecting the parsed links — matching the
+// reference SDKs (JVM DocumentGetter/TransactionLinks.isDocumentInTransaction, Go txnMeta==nil) and
+// the spec, where a document-level FAIL_PATH_NOT_FOUND "can never trigger" on this path. Genuine
+// document-level failures (document_not_found, transient, etc.) still carry a real ctx.ec() and are
+// classified by the generic template.
 
 static constexpr std::chrono::milliseconds DEFAULT_RETRY_OP_DELAY{ 3 };
 static constexpr std::chrono::milliseconds DEFAULT_RETRY_OP_EXP_DELAY{ 1 };

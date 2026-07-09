@@ -3392,13 +3392,11 @@ attempt_context_impl::do_get(const core::document_id& id,
               return cb(std::nullopt, std::nullopt, std::nullopt, std::nullopt);
             }
 
-            // FAIL_PATH_NOT_FOUND with a valid doc means some transaction XATTRs
-            // (e.g. txn.id, txn.atr) are absent on this document — the normal
-            // state for a non-transacted document.  Fall through to the
-            // link-inspection logic below instead of treating it as a hard error.
-            if (ec && !(ec == FAIL_PATH_NOT_FOUND && doc.has_value())) {
+            if (ec) {
               return cb(ec, cause, err_message, std::nullopt);
             }
+            // A non-transacted document is a successful lookup with the txn XATTR paths simply
+            // absent; whether it is "in a transaction" is decided below by inspecting the links.
 
             if (!doc->links().is_document_in_transaction()) {
               if (doc->links().is_deleted()) {
@@ -3537,20 +3535,14 @@ execute_lookup(attempt_context_impl* ctx, LookupInRequest& req, Callback&& cb)
       auto ec = error_class_from_response(resp);
       if (ec) {
         CB_ATTEMPT_CTX_LOG_TRACE(ctx, "get_doc got error {} : {}", resp.ctx.ec().message(), *ec);
-        switch (*ec) {
-          case FAIL_PATH_NOT_FOUND:
-            return cb(ec,
-                      external_exception_from_response(resp),
-                      resp.ctx.ec().message(),
-                      transaction_get_result::create_from(resp));
-          default:
-            return cb(
-              ec, external_exception_from_response(resp), resp.ctx.ec().message(), std::nullopt);
-        }
-      } else {
         return cb(
-          std::nullopt, std::nullopt, std::nullopt, transaction_get_result::create_from(resp));
+          ec, external_exception_from_response(resp), resp.ctx.ec().message(), std::nullopt);
       }
+      // Success. A lookup_in on a non-transacted document also lands here: the txn XATTR paths are
+      // simply absent (a per-path condition, not a document-level error), and the caller decides
+      // "is this in a transaction?" by inspecting the parsed links.
+      return cb(
+        std::nullopt, std::nullopt, std::nullopt, transaction_get_result::create_from(resp));
     });
 }
 } // namespace
@@ -3705,9 +3697,9 @@ attempt_context_impl::create_staged_insert_error_handler(const core::document_id
               std::optional<external_exception> /* cause */,
               std::optional<std::string> err_message,
               std::optional<transaction_get_result> doc) mutable {
-              // FAIL_PATH_NOT_FOUND with a valid doc means the document exists but has no
-              // transaction XATTRs — treat it like a successful fetch of a non-transacted doc.
-              if (!ec3 || (ec3 == FAIL_PATH_NOT_FOUND && doc.has_value())) {
+              // A successful lookup: the document exists. If it carries no transaction XATTRs it is
+              // a non-transacted doc (the txn paths are simply absent), inspected below.
+              if (!ec3) {
                 if (doc) {
                   CB_ATTEMPT_CTX_LOG_DEBUG(
                     self,
@@ -3787,9 +3779,9 @@ attempt_context_impl::create_staged_insert_error_handler(const core::document_id
                         id, content, doc->cas().value(), delay, op_id, std::forward<Handler>(cb));
                     });
                 } else {
-                  // no doc now, just retry entire txn.  We only reach this branch when ec3 is
-                  // empty (the FAIL_PATH_NOT_FOUND case above requires doc.has_value()), so there
-                  // is no error class to log here.
+                  // no doc now, just retry entire txn.  We only reach this branch on a successful
+                  // lookup (ec3 empty) that nonetheless returned no document, so there is no error
+                  // class to log here.
                   CB_ATTEMPT_CTX_LOG_TRACE(
                     self, "get_doc in exists during staged insert returned no document, retrying");
                   return self->op_completed_with_error(
