@@ -17,8 +17,9 @@
 /**
  * Unit tests for the transaction utility functions introduced or changed in CXXCBC-810:
  *
- *  1. error_class_from_response<lookup_in_response> — the new specialization that
- *     inspects per-field subdoc errors when the document-level ctx.ec() is success.
+ *  1. error_class_from_response for lookup_in_response — a document-level success with absent
+ *     per-field (subdoc) paths is classified as success, not an error, so a non-transacted
+ *     document read is decided by inspecting links rather than by a path-not-found error class.
  *  2. atr_entry::has_expired — the safety-guard that now requires both
  *     timestamp_start_ms_ and expires_after_ms_ to be present before declaring
  *     an entry expired.
@@ -224,115 +225,24 @@ TEST_CASE("transactions: error_class_from_response(lookup_in): request_canceled 
   REQUIRE(*ec == FAIL_AMBIGUOUS);
 }
 
-TEST_CASE("transactions: error_class_from_response(lookup_in): unknown doc-level error is other",
-          "[unit]")
-{
-  lookup_in_response resp;
-  // value_too_large is not special-cased in the lookup_in specialization
-  resp.ctx = make_subdoc_ctx(couchbase::errc::key_value::value_too_large);
-  const auto ec = error_class_from_response(resp);
-  REQUIRE(ec.has_value());
-  REQUIRE(*ec == FAIL_OTHER);
-}
+// A lookup_in whose document level succeeds but whose individual paths fail is NOT an error. When a
+// document is not in a transaction the txn.* XATTR paths are absent, so the server returns
+// subdoc_multi_path_failure: a document-level success (empty ctx.ec()) with the missing paths
+// recorded per field. The generic error_class_from_response classifies this as success (nullopt),
+// and the caller decides transaction membership by inspecting the parsed links -- matching the
+// reference SDKs and the spec, where a document-level FAIL_PATH_NOT_FOUND "can never trigger" on
+// the read path. (A lookup_in specialization that promoted the absent txn.* path to
+// FAIL_PATH_NOT_FOUND used to exist here and was removed for exactly this reason.)
 
-// ---------------------------------------------------------------------------
-// 2.  error_class_from_response<lookup_in_response> — per-field (subdoc) errors
-//     These fire when ctx.ec() == {} but a spec within the response failed.
-// ---------------------------------------------------------------------------
-
-TEST_CASE("transactions: error_class_from_response(lookup_in): per-field path_not_found is "
-          "FAIL_PATH_NOT_FOUND",
+TEST_CASE("transactions: error_class_from_response(lookup_in): document-level success with failed "
+          "per-field paths is not an error",
           "[unit]")
 {
   lookup_in_response resp;
   resp.ctx = make_subdoc_ctx({}, /*first_error_index=*/0);
   resp.fields.push_back(make_field(couchbase::errc::key_value::path_not_found));
 
-  const auto ec = error_class_from_response(resp);
-  REQUIRE(ec.has_value());
-  REQUIRE(*ec == FAIL_PATH_NOT_FOUND);
-}
-
-TEST_CASE("transactions: error_class_from_response(lookup_in): per-field path_exists is "
-          "FAIL_PATH_ALREADY_EXISTS",
-          "[unit]")
-{
-  lookup_in_response resp;
-  resp.ctx = make_subdoc_ctx({}, /*first_error_index=*/0);
-  resp.fields.push_back(make_field(couchbase::errc::key_value::path_exists));
-
-  const auto ec = error_class_from_response(resp);
-  REQUIRE(ec.has_value());
-  REQUIRE(*ec == FAIL_PATH_ALREADY_EXISTS);
-}
-
-TEST_CASE("transactions: error_class_from_response(lookup_in): per-field unknown error is other",
-          "[unit]")
-{
-  lookup_in_response resp;
-  resp.ctx = make_subdoc_ctx({}, /*first_error_index=*/0);
-  resp.fields.push_back(make_field(couchbase::errc::key_value::value_too_large));
-
-  const auto ec = error_class_from_response(resp);
-  REQUIRE(ec.has_value());
-  REQUIRE(*ec == FAIL_OTHER);
-}
-
-TEST_CASE(
-  "transactions: error_class_from_response(lookup_in): per-field success with first_error_index "
-  "yields nullopt",
-  "[unit]")
-{
-  // first_error_index points to a field whose ec is success — should return nullopt
-  lookup_in_response resp;
-  resp.ctx = make_subdoc_ctx({}, /*first_error_index=*/0);
-  resp.fields.push_back(make_field({})); // ec == success
-
-  const auto ec = error_class_from_response(resp);
-  REQUIRE_FALSE(ec.has_value());
-}
-
-TEST_CASE(
-  "transactions: error_class_from_response(lookup_in): first_error_index out of range yields "
-  "nullopt",
-  "[unit]")
-{
-  // first_error_index points beyond the fields vector — should not crash and returns nullopt
-  lookup_in_response resp;
-  resp.ctx = make_subdoc_ctx({}, /*first_error_index=*/5);
-  resp.fields.push_back(make_field(couchbase::errc::key_value::path_not_found));
-
-  const auto ec = error_class_from_response(resp);
-  REQUIRE_FALSE(ec.has_value());
-}
-
-TEST_CASE(
-  "transactions: error_class_from_response(lookup_in): no first_error_index but fields present "
-  "yields nullopt",
-  "[unit]")
-{
-  // No per-field error signalled via first_error_index — nullopt even if fields contain errors
-  lookup_in_response resp;
-  resp.ctx = make_subdoc_ctx({}, std::nullopt);
-  resp.fields.push_back(make_field(couchbase::errc::key_value::path_not_found));
-
-  const auto ec = error_class_from_response(resp);
-  REQUIRE_FALSE(ec.has_value());
-}
-
-TEST_CASE("transactions: error_class_from_response(lookup_in): second field error reported via "
-          "first_error_index",
-          "[unit]")
-{
-  // Two fields; only index 1 failed
-  lookup_in_response resp;
-  resp.ctx = make_subdoc_ctx({}, /*first_error_index=*/1);
-  resp.fields.push_back(make_field({}));                                         // index 0: ok
-  resp.fields.push_back(make_field(couchbase::errc::key_value::path_not_found)); // index 1: fail
-
-  const auto ec = error_class_from_response(resp);
-  REQUIRE(ec.has_value());
-  REQUIRE(*ec == FAIL_PATH_NOT_FOUND);
+  REQUIRE_FALSE(error_class_from_response(resp).has_value());
 }
 
 // ---------------------------------------------------------------------------
