@@ -18,6 +18,7 @@
 #pragma once
 
 #include <couchbase/build_config.hxx>
+#include <couchbase/error_codes.hxx>
 
 #include "core/diagnostics.hxx"
 #include "core/origin.hxx"
@@ -119,6 +120,11 @@ public:
   void write_and_subscribe(io::http_request& request, Handler&& handler)
   {
     if (stopped_) {
+      // The session was stopped between checkout and here -- e.g. the read armed while the
+      // connection was idle completed with the peer's FIN/RST after reset_idle() cleared idle_,
+      // driving do_read() -> stop(). Surface a retryable cancellation instead of dropping the
+      // request silently, which would strand the caller until its operation timeout.
+      std::forward<Handler>(handler)(errc::common::request_canceled, {});
       return;
     }
     {
