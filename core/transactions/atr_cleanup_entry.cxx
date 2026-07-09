@@ -366,8 +366,8 @@ atr_cleanup_entry::remove_docs_staged_for_removal(std::optional<std::vector<doc_
     do_per_doc(*docs, true, [&](transaction_get_result& doc, bool) {
       if (doc.links().is_document_being_removed()) {
         auto ec = wait_for_hook([this, key = doc.id().key()](auto handler) mutable {
-          return cleanup_->cleanup_hooks()->before_remove_doc_staged_for_removal(key,
-                                                                                std::move(handler));
+          return cleanup_->cleanup_hooks()->before_remove_doc_staged_for_removal(
+            key, std::move(handler));
         });
         if (ec) {
           throw client_error(*ec, "before_remove_doc_staged_for_removal hook threw error");

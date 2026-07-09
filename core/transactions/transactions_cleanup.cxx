@@ -457,7 +457,8 @@ transactions_cleanup::remove_client_record_from_all_buckets(const std::string& u
           try {
             // proceed to remove the client uuid if it exists
             auto ec = wait_for_hook([this, bucket = keyspace.bucket](auto handler) mutable {
-              return cleanup_hooks()->client_record_before_remove_client(bucket, std::move(handler));
+              return cleanup_hooks()->client_record_before_remove_client(bucket,
+                                                                         std::move(handler));
             });
             if (ec) {
               throw client_error(*ec, "client_record_before_remove_client hook raised error");
