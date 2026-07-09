@@ -538,6 +538,12 @@ public:
   {
     auto handler = [spec, self = shared_from_this()](const std::exception_ptr& error,
                                                      std::optional<transaction_get_result> res) {
+      if (!self->callback_) {
+        // The operation already completed (e.g. a sibling fetch hit a forward-compat failure and
+        // invoked the callback, moving results_ out). Concurrently-dispatched fetches can still
+        // complete afterwards; ignore them so we never index the moved-from results_ vector.
+        return;
+      }
       if (res) {
         // The raw fetch does not perform MAV, so the forward-compatibility checks the normal get
         // path would run must be done here. Per spec, run two checks in order: GET_MULTI_GET
