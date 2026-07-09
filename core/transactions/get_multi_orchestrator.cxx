@@ -566,20 +566,27 @@ public:
       }
       if (self->responses_left_ == 0) {
         if (self->phase_ == get_multi_phase::first_doc_fetch) {
+          // Set the read-skew bound exactly once, on the first-doc-fetch -> subsequent transition,
+          // and leave it fixed for the remaining rounds. This matches the reference (JVM sets the
+          // bound only when phase == FIRST_DOC_FETCH; reset() carries it through unchanged):
+          // recomputing it every round in latency mode would push the 100ms bound indefinitely into
+          // the future and defeat the best-effort BoundExceeded return.
+          switch (self->mode_) {
+            case get_multi_mode::disable_read_skew_detection:
+              break;
+            case get_multi_mode::prioritise_latency:
+              self->deadline_ = std::chrono::steady_clock::now() + std::chrono::milliseconds{ 100 };
+              break;
+            case get_multi_mode::prioritise_read_skew_detection:
+              self->deadline_ = self->attempt_->expiry_time();
+              break;
+          }
           self->phase_ = get_multi_phase::subsequent_to_first_doc_fetch;
         }
 
-        switch (self->mode_) {
-          case get_multi_mode::disable_read_skew_detection:
-            return self->invoke_callback();
-          case get_multi_mode::prioritise_latency:
-            self->deadline_ = std::chrono::steady_clock::now() + std::chrono::milliseconds{ 100 };
-            break;
-          case get_multi_mode::prioritise_read_skew_detection:
-            self->deadline_ = self->attempt_->expiry_time();
-            break;
+        if (self->mode_ == get_multi_mode::disable_read_skew_detection) {
+          return self->invoke_callback();
         }
-
         self->disambiguate_results();
       }
     };
