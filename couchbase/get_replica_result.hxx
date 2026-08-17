@@ -32,8 +32,8 @@ class manager;
 #endif
 
 /**
- * Represents result of @ref collection#get_any_replica operations, also returned by @ref
- * collection#get_all_replicas.
+ * Represents result of @ref collection#get_any_replica, @ref collection#get_all_replicas and
+ * @ref collection#get_replica operations
  *
  * @since 1.0.0
  * @committed
