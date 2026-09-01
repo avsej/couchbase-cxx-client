@@ -19,6 +19,9 @@ name: big-endian
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - be-1108-verify
 
 permissions:
   contents: read
