@@ -41,6 +41,8 @@
 
 #include "framework/test_registry.hxx"
 
+#include "callback_queue_keepalive.hxx"
+
 #include "core/cluster_credentials.hxx"
 #include "core/document_id.hxx"
 #include "core/error_context/key_value.hxx"
@@ -464,6 +466,8 @@ private:
   {
     static shared_state* state = [] {
       auto* fresh = new shared_state{}; // NOLINT(cppcoreguidelines-owning-memory) -- see above
+      pin_callback_queue(); // CXXCBC-919: a channel per case cycles gRPC's callback queue
+
       grpc::ServerBuilder builder;
       builder.RegisterService(&fresh->service);
       fresh->server = builder.BuildAndStart();
