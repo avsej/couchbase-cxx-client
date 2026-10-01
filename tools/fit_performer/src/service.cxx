@@ -1155,8 +1155,8 @@ TxnService::execute_command(ConnectionPtr conn,
       core_ctx->rollback();
     } else {
       // this should just raise an exception
-      throw couchbase::core::transactions::transaction_operation_failed(
-        couchbase::core::transactions::error_class::FAIL_OTHER, "got cmd rollback");
+      auto core_ctx = std::dynamic_pointer_cast<couchbase::core::transactions::attempt_context_impl>(ctx);
+      core_ctx->rollback();
     }
   } else if (cmd.has_query()) {
     auto opts = TxnSvcUtils::to_transactions_query_options(cmd.query());
