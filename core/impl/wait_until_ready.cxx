@@ -95,12 +95,20 @@ vbucket_map_ready(const topology::configuration& config) -> bool
     return false;
   }
   // active + replicas
+  std::size_t kv_nodes = 0;
+  for (const auto& n : config.nodes) {
+    if (n.services_plain.key_value.has_value() || n.services_tls.key_value.has_value()) {
+      kv_nodes++;
+    }
+  }
+
   const auto copies = static_cast<std::size_t>(config.num_replicas.value_or(0)) + 1;
+  const auto expected_copies = std::min(copies, kv_nodes);
   for (const auto& chain : vbmap) {
-    if (chain.size() < copies) {
+    if (chain.size() < expected_copies) {
       return false;
     }
-    for (std::size_t i = 0; i < copies; ++i) {
+    for (std::size_t i = 0; i < expected_copies; ++i) {
       if (chain[i] < 0) { // -1 => copy not yet assigned to a node
         return false;
       }
