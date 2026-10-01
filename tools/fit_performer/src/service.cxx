@@ -95,7 +95,8 @@ TxnService::disconnectConnections(grpc::ServerContext* /*context*/,
   for (const auto& [key, conn] : connections) {
     spdlog::trace("closing connection {}", key);
     try {
-      conn->cluster()->close().get();
+      conn->force_flush_otel();
+    conn->cluster()->close().get();
     } catch (const std::exception& e) {
       spdlog::warn("failed to close connection {}: {}", key, e.what());
     }
@@ -1721,6 +1722,7 @@ TxnService::clusterConnectionClose(grpc::ServerContext* /*context*/,
     remaining = connections_.size();
   }
   try {
+    conn->force_flush_otel();
     conn->cluster()->close().get();
   } catch (const std::exception& e) {
     spdlog::warn("failed to close connection {}: {}", request->cluster_connection_id(), e.what());

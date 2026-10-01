@@ -85,7 +85,7 @@ create_tracer_provider(const protocol::observability::TracingConfig& cfg)
   -> std::unique_ptr<opentelemetry::sdk::trace::TracerProvider>
 {
   opentelemetry::exporter::otlp::OtlpHttpExporterOptions exporter_opts{};
-  exporter_opts.url = cfg.endpoint_hostname();
+  exporter_opts.url = cfg.endpoint_hostname() + "/v1/traces";
 
   auto exporter = opentelemetry::exporter::otlp::OtlpHttpExporterFactory::Create(exporter_opts);
 
@@ -124,7 +124,7 @@ create_meter_provider(const protocol::observability::MetricsConfig& cfg)
   -> std::unique_ptr<opentelemetry::sdk::metrics::MeterProvider>
 {
   opentelemetry::exporter::otlp::OtlpHttpMetricExporterOptions exporter_opts{};
-  exporter_opts.url = cfg.endpoint_hostname();
+  exporter_opts.url = cfg.endpoint_hostname() + "/v1/metrics";
 
   auto exporter =
     opentelemetry::exporter::otlp::OtlpHttpMetricExporterFactory::Create(exporter_opts);

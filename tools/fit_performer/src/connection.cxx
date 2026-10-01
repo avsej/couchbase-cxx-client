@@ -128,6 +128,22 @@ Connection::tracer() -> const std::shared_ptr<couchbase::tracing::request_tracer
   return tracer_;
 }
 
+void
+Connection::force_flush_otel()
+{
+#ifdef COUCHBASE_CXX_CLIENT_BUILD_OPENTELEMETRY
+  if (otel_tracer_provider_) {
+    otel_tracer_provider_->ForceFlush();
+  }
+#ifdef COUCHBASE_CXX_CLIENT_OTEL_METER_USES_GA_METRICS_API
+  if (otel_meter_provider_) {
+    otel_meter_provider_->ForceFlush();
+  }
+#endif
+#endif
+}
+
+
 auto
 Connection::create_certificate_authenticator(
   const protocol::shared::Authenticator_CertificateAuthenticator& auth)

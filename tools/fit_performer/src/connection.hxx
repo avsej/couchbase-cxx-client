@@ -89,7 +89,8 @@ parse_io_thread_count(const std::string& value, std::size_t fallback) -> std::si
 
 class Connection : public std::enable_shared_from_this<Connection>
 {
-private:
+public:
+  void force_flush_otel();
   asio::io_context ctx_{ ASIO_CONCURRENCY_HINT_SAFE };
   work_guard_type guard_{ asio::make_work_guard(ctx_) };
   std::shared_ptr<couchbase::cluster> cluster_;

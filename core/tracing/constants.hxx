@@ -136,8 +136,8 @@ namespace attributes
 namespace common
 {
 constexpr auto system = "db.system.name";
-constexpr auto cluster_name = "couchbase.cluster.name";
-constexpr auto cluster_uuid = "couchbase.cluster.uuid";
+constexpr auto cluster_name = "db.couchbase.cluster.name";
+constexpr auto cluster_uuid = "db.couchbase.cluster.uuid";
 } // namespace common
 
 // Operation-level attributes
