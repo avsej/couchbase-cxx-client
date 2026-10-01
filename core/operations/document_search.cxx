@@ -36,6 +36,23 @@ search_request::encode_to(search_request::encoded_request_type& encoded,
     return errc::common::invalid_argument;
   }
 
+  bool is_score_fusion = false;
+  if (!std::holds_alternative<std::monostate>(scoring)) {
+    std::visit(
+      [&is_score_fusion](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<T, couchbase::core::search_scoring_reciprocal_rank_fusion> ||
+                      std::is_same_v<T, couchbase::core::search_scoring_relative_score_fusion>) {
+          is_score_fusion = true;
+        }
+      },
+      scoring);
+  }
+
+  if (is_score_fusion && !sort_specs.empty()) {
+    return errc::common::invalid_argument;
+  }
+
   auto body = tao::json::value{
     { "query", utils::json::parse(query) },
     { "ctl", { { "timeout", encoded.timeout.count() } } },
@@ -384,6 +401,8 @@ search_request::make_response(error_context::search&& ctx,
         response.ctx.ec = errc::common::quota_limited;
         return response;
       }
+      response.ctx.ec = errc::common::invalid_argument;
+      return response;
     } else if (encoded.status_code == 429) {
       tao::json::value payload{};
       try {
