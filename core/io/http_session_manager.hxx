@@ -402,6 +402,27 @@ public:
     }
   }
 
+  void close_idle_sessions()
+  {
+    std::vector<std::shared_ptr<http_session>> evicted;
+    {
+      std::scoped_lock lock(sessions_mutex_);
+      for (auto& [type, sessions] : idle_sessions_) {
+        for (auto& session : sessions) {
+          if (session) {
+            evicted.push_back(session);
+          }
+        }
+        sessions.clear();
+      }
+    }
+    for (const auto& session : evicted) {
+      asio::post(session->get_executor(), [session]() {
+        session->stop();
+      });
+    }
+  }
+
   void close()
   {
     std::map<service_type, std::list<std::shared_ptr<http_session>>> busy_sessions, idle_sessions,

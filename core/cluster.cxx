@@ -769,6 +769,10 @@ public:
       tls_.set_ctx(new_ctx);
     }
 
+    if (session_manager_) {
+      session_manager_->close_idle_sessions();
+    }
+
     if (auth.uses_jwt()) {
       for_each_mcbp_session([](auto& session) {
         session.reauthenticate();
