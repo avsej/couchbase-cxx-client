@@ -774,6 +774,9 @@ public:
         session.reauthenticate();
       });
     }
+    if (session_manager_) {
+      session_manager_->close_idle_sessions();
+    }
     return {};
   }
 

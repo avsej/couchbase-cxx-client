@@ -158,6 +158,34 @@ TEST_CASE("integration: bucket wait_until_ready", "[integration]")
   }
 }
 
+TEST_CASE("integration: bucket wait_until_ready does not hang on impossible replica counts",
+          "[integration]")
+{
+  test::utils::integration_test_guard integration;
+  auto cluster = integration.public_cluster();
+  const auto bucket_name = test::utils::uniq_id("impossible_replicas");
+
+  couchbase::management::cluster::bucket_settings settings{};
+  settings.name = bucket_name;
+  settings.bucket_type = couchbase::management::cluster::bucket_type::couchbase;
+  settings.ram_quota_mb = 100;
+  // Request 3 replicas. On small clusters (e.g., 1 node), this is impossible to satisfy.
+  settings.num_replicas = 3;
+
+  auto create_err = cluster.buckets().create_bucket(settings).get();
+  REQUIRE_SUCCESS(create_err.ec());
+
+  // wait_until_ready should not hang forever waiting for impossible replica vBuckets to become online.
+  // It should bound the expected copies to the number of available KV nodes and succeed.
+  couchbase::wait_until_ready_options options{};
+  options.service_types({ couchbase::service_type::key_value });
+  auto ready_err = cluster.bucket(bucket_name).wait_until_ready(30s, options).get();
+  REQUIRE_SUCCESS(ready_err.ec());
+
+  auto drop_err = cluster.buckets().drop_bucket(bucket_name).get();
+  REQUIRE_SUCCESS(drop_err.ec());
+}
+
 TEST_CASE("integration: freshly created bucket is durable-write ready after wait_until_ready",
           "[integration]")
 {

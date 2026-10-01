@@ -84,6 +84,27 @@ public:
     return config_.capabilities;
   }
 
+  void close_idle_sessions()
+  {
+    std::vector<std::shared_ptr<http_session>> evicted;
+    {
+      std::scoped_lock lock(sessions_mutex_);
+      for (auto& [type, sessions] : idle_sessions_) {
+        for (auto& session : sessions) {
+          if (session) {
+            evicted.push_back(session);
+          }
+        }
+        sessions.clear();
+      }
+    }
+    for (const auto& session : evicted) {
+      asio::post(session->get_executor(), [session]() {
+        session->stop();
+      });
+    }
+  }
+
   void update_config(topology::configuration config) override
   {
     // Idle sessions to nodes that have left the cluster, collected under the lock
