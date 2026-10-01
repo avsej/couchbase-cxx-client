@@ -127,7 +127,7 @@ search_request::encode_to(search_request::encoded_request_type& encoded,
   if (!fields.empty()) {
     body["fields"] = fields;
   }
-  if (!sort_specs.empty()) {
+  if (!sort_specs.empty() && !is_score_fusion(scoring)) {
     body["sort"] = tao::json::empty_array;
     for (const auto& spec : sort_specs) {
       body["sort"].get_array().push_back(utils::json::parse(spec));
@@ -231,7 +231,7 @@ search_request::make_response(error_context::search&& ctx,
           }
         }
       } else {
-        response.ctx.ec = errc::common::internal_server_failure;
+        response.ctx.ec = errc::common::invalid_argument;
         return response;
       }
 
@@ -415,7 +415,7 @@ search_request::make_response(error_context::search&& ctx,
       response.ctx.ec = errc::common::feature_not_available;
       return response;
     }
-    response.ctx.ec = errc::common::internal_server_failure;
+    response.ctx.ec = errc::common::invalid_argument;
   }
   return response;
 }
