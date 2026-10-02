@@ -1246,6 +1246,7 @@ public:
     if (stopped_) {
       return;
     }
+    ++bootstrap_step_;
     bootstrapped_ = false;
     if (auto handler = std::move(bootstrap_handler_); handler) {
       last_bootstrap_error_ = handler->last_bootstrap_error();
@@ -1293,19 +1294,24 @@ public:
     CB_LOG_DEBUG("{} attempt to establish MCBP connection", log_prefix_);
 
     resolve_deadline_.expires_after(origin_.options().resolve_timeout);
-    resolve_deadline_.async_wait([self = shared_from_this()](const auto ec) {
-      if (ec == asio::error::operation_aborted || self->stopped_) {
+    resolve_deadline_.async_wait([self = shared_from_this(),
+                                  step = bootstrap_step_.load()](const auto ec) {
+      if (ec == asio::error::operation_aborted || self->stopped_ || step != self->bootstrap_step_) {
         return;
       }
       self->initiate_bootstrap();
     });
-    async_resolve(origin_.options().use_ip_protocol,
-                  resolver_,
-                  bootstrap_hostname_,
-                  bootstrap_port_,
-                  [self = shared_from_this()](auto ec, auto& endpoints) {
-                    self->on_resolve(ec, endpoints);
-                  });
+    async_resolve(
+      origin_.options().use_ip_protocol,
+      resolver_,
+      bootstrap_hostname_,
+      bootstrap_port_,
+      [self = shared_from_this(), step = bootstrap_step_.load()](auto ec, auto& endpoints) {
+        if (step != self->bootstrap_step_) {
+          return;
+        }
+        self->on_resolve(ec, endpoints);
+      });
   }
 
   [[nodiscard]] auto id() const -> const std::string&
@@ -1875,6 +1881,7 @@ private:
 
   void invoke_bootstrap_handler(std::error_code ec)
   {
+    ++bootstrap_step_;
     connection_deadline_.cancel();
     retry_backoff_.cancel();
 
@@ -1954,6 +1961,7 @@ private:
     if (ec == asio::error::operation_aborted || stopped_) {
       return;
     }
+    ++bootstrap_step_;
     resolve_deadline_.cancel();
     last_active_ = std::chrono::steady_clock::now();
     if (ec) {
@@ -1985,8 +1993,10 @@ private:
                    origin_.options().connect_timeout.count());
       connection_deadline_.expires_after(origin_.options().connect_timeout);
       connection_deadline_.async_wait(
-        [self = shared_from_this(), hostname, port](const auto timer_ec) {
-          if (timer_ec == asio::error::operation_aborted || self->stopped_) {
+        [self = shared_from_this(), step = bootstrap_step_.load(), hostname, port](
+          const auto timer_ec) {
+          if (timer_ec == asio::error::operation_aborted || self->stopped_ ||
+              step != self->bootstrap_step_) {
             return;
           }
           CB_LOG_DEBUG("{} unable to connect to {} (\"{}\") in time, reconnecting",
@@ -1996,7 +2006,12 @@ private:
           self->initiate_bootstrap();
         });
       stream_->async_connect(
-        it->endpoint(), bootstrap_hostname_, [self = shared_from_this(), it](auto&& ec) {
+        it->endpoint(),
+        bootstrap_hostname_,
+        [self = shared_from_this(), step = bootstrap_step_.load(), it](auto&& ec) {
+          if (step != self->bootstrap_step_) {
+            return;
+          }
           self->on_connect(std::forward<decltype(ec)>(ec), it);
         });
     } else {
@@ -2022,6 +2037,7 @@ private:
     if (ec == asio::error::operation_aborted || stopped_) {
       return;
     }
+    ++bootstrap_step_;
     connection_deadline_.cancel();
     last_active_ = std::chrono::steady_clock::now();
     if (!stream_->is_open() || ec) {
@@ -2092,19 +2108,21 @@ private:
       bootstrap_handler_ = std::make_shared<bootstrap_handler>(shared_from_this());
 
       connection_deadline_.expires_after(origin_.options().key_value_timeout);
-      connection_deadline_.async_wait([self = shared_from_this()](const auto timer_ec) {
-        if (timer_ec == asio::error::operation_aborted || self->stopped_) {
-          return;
-        }
-        CB_LOG_DEBUG("{} unable to bootstrap single node at {} (\"{}\") in time, reconnecting",
-                     self->log_prefix_,
-                     logger::system_data(fmt::format("{}:{}:{}",
-                                                     self->connection_endpoints_.local.port(),
-                                                     self->connection_endpoints_.remote_address,
-                                                     self->connection_endpoints_.remote.port())),
-                     logger::system_data(self->bootstrap_address_));
-        return self->initiate_bootstrap();
-      });
+      connection_deadline_.async_wait(
+        [self = shared_from_this(), step = bootstrap_step_.load()](const auto timer_ec) {
+          if (timer_ec == asio::error::operation_aborted || self->stopped_ ||
+              step != self->bootstrap_step_) {
+            return;
+          }
+          CB_LOG_DEBUG("{} unable to bootstrap single node at {} (\"{}\") in time, reconnecting",
+                       self->log_prefix_,
+                       logger::system_data(fmt::format("{}:{}:{}",
+                                                       self->connection_endpoints_.local.port(),
+                                                       self->connection_endpoints_.remote_address,
+                                                       self->connection_endpoints_.remote.port())),
+                       logger::system_data(self->bootstrap_address_));
+          return self->initiate_bootstrap();
+        });
     }
   }
 
@@ -2281,6 +2299,12 @@ private:
   std::vector<std::shared_ptr<config_listener>> config_listeners_{};
   utils::movable_function<void()> on_stop_handler_{};
 
+  // Advanced each time the bootstrap moves past a step: a new attempt, a resolve result, a connect
+  // result, a bootstrap result. The resolve and connect completions and their deadlines, and the
+  // single-node bootstrap deadline, capture it when started and are ignored once it has moved,
+  // because cancel() cannot retract a completion that is already queued. bootstrap_deadline_
+  // spans every step and does not use it.
+  std::atomic_uint64_t bootstrap_step_{ 0 };
   std::atomic_bool bootstrapped_{ false };
   std::atomic_bool stopped_{ false };
   std::atomic_bool reauth_in_progress_{ false };
