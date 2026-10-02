@@ -260,6 +260,11 @@ public:
 
   auto direct_dispatch(std::shared_ptr<mcbp::queue_request> req) -> std::error_code
   {
+    if (req->is_cancelled()) {
+      // Completed while parked in a deferred queue, whose closures cancel() cannot reach. The
+      // callback has run, so sending it would register an operation nothing completes.
+      return {};
+    }
     if (closed_) {
       req->cancel(errc::network::bucket_closed);
       return errc::network::bucket_closed;
@@ -315,6 +320,10 @@ public:
   auto direct_re_queue(const std::shared_ptr<mcbp::queue_request>& req, bool is_retry)
     -> std::error_code
   {
+    if (req->is_cancelled()) {
+      // As in direct_dispatch().
+      return {};
+    }
     auto handle_error = [is_retry, req](std::error_code ec) {
       // We only want to log an error on retries if the error isn't cancelled.
       if (!is_retry || ec != errc::common::request_canceled) {

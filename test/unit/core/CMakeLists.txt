@@ -1,3 +1,4 @@
+couchbase_add_test(unit/core/bucket_deferred_dispatch LABEL unit LINK_CLIENT)
 couchbase_add_test(unit/core/bucket_deferred_queue LABEL unit LINK_CLIENT)
 couchbase_add_test(unit/core/bucket_request_completion LABEL unit LINK_CLIENT)
 couchbase_add_test(unit/core/bucket_routing LABEL unit LINK_CLIENT)
