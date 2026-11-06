@@ -1,0 +1,109 @@
+{
+  "sha": "bbdad3caa6e7397f30046ff837ac666d48d41d37",
+  "date": "2026-11-05T19:45:15-08:00",
+  "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C",
+  "rows": {
+    "json_generate_binary/large": {
+      "median": 31430.15625,
+      "lower": 28789.328125,
+      "upper": 31485.1875,
+      "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C"
+    },
+    "json_generate_binary/small": {
+      "median": 374.5042724609375,
+      "lower": 357.158935546875,
+      "upper": 383.6640625,
+      "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C"
+    },
+    "json_streaming_lexer/rows_10": {
+      "median": 3561.6513671875,
+      "lower": 3537.1015625,
+      "upper": 3574.095703125,
+      "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C"
+    },
+    "json_streaming_lexer/rows_1000": {
+      "median": 225017.5,
+      "lower": 210166.4375,
+      "upper": 230511.8125,
+      "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C"
+    },
+    "kv_get/cluster/t1": {
+      "median": 51072.0,
+      "lower": 50304.0,
+      "upper": 53120.0,
+      "cpu_model": "AMD EPYC 9V45 96-Core Processor"
+    },
+    "kv_get/cluster/t8": {
+      "median": 100608.0,
+      "lower": 97536.0,
+      "upper": 111360.0,
+      "cpu_model": "AMD EPYC 9V45 96-Core Processor"
+    },
+    "kv_get/fake/t1": {
+      "median": 64384.0,
+      "lower": 62848.0,
+      "upper": 65792.0,
+      "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C"
+    },
+    "kv_get/fake/t8": {
+      "median": 119552.0,
+      "lower": 112896.0,
+      "upper": 137728.0,
+      "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C"
+    },
+    "kv_upsert/cluster/t1": {
+      "median": 118016.0,
+      "lower": 108800.0,
+      "upper": 123648.0,
+      "cpu_model": "AMD EPYC 9V45 96-Core Processor"
+    },
+    "kv_upsert/cluster/t8": {
+      "median": 420864.0,
+      "lower": 320512.0,
+      "upper": 515072.0,
+      "cpu_model": "AMD EPYC 9V45 96-Core Processor"
+    },
+    "kv_upsert/fake/t1": {
+      "median": 65408.0,
+      "lower": 64640.0,
+      "upper": 68864.0,
+      "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C"
+    },
+    "kv_upsert/fake/t8": {
+      "median": 115968.0,
+      "lower": 113920.0,
+      "upper": 116480.0,
+      "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C"
+    },
+    "mcbp_parser_next/plain": {
+      "median": 9695.40625,
+      "lower": 9490.3408203125,
+      "upper": 9805.111328125,
+      "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C"
+    },
+    "mcbp_parser_next/snappy": {
+      "median": 9808.541015625,
+      "lower": 9652.74609375,
+      "upper": 10020.333984375,
+      "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C"
+    },
+    "vbucket_hash/crc32_t1": {
+      "median": 10.586654663085938,
+      "lower": 9.804183959960938,
+      "upper": 10.62301254272461,
+      "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C"
+    },
+    "vbucket_hash/map_key_t1": {
+      "median": 17.78577423095703,
+      "lower": 17.1434326171875,
+      "upper": 17.827880859375,
+      "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C"
+    },
+    "vbucket_hash/map_key_t8": {
+      "median": 30.468460083007812,
+      "lower": 30.347869873046875,
+      "upper": 30.553436279296875,
+      "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C"
+    }
+  }
+}
