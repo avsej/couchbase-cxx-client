@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Performance history</title>
+<style>
+  :root { --fg: #1f2328; --bg: #fff; --muted: #656d76; --line: #0969da; --warn: #bc4c00; --grid: #d0d7de; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #e6edf3; --bg: #0d1117; --muted: #8b949e; --line: #58a6ff; --warn: #ffa657; --grid: #30363d; }
+  }
+  body { font: 14px/1.4 system-ui, sans-serif; color: var(--fg); background: var(--bg); max-width: 72rem; margin: 0 auto; padding: 1rem; }
+  #charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: 1rem; }
+  h2 { font: 600 13px ui-monospace, monospace; margin: 0; word-break: break-all; }
+  .latest { color: var(--muted); font-size: 12px; }
+  svg { width: 100%; height: 5rem; display: block; }
+  .grid { stroke: var(--grid); }
+  .series { fill: none; stroke: var(--line); stroke-width: 1.5; }
+  .pt { fill: var(--line); }
+  .pt.cpu { fill: var(--warn); }
+  .muted { color: var(--muted); }
+</style></head>
+<body>
+<h1>Performance history</h1>
+<p class="muted">Median latency of each benchmark case at each commit of main, oldest to newest. An orange point ran on a different CPU model than the point before it in the same chart. Each point links to its commit.</p>
+<p id="status" class="muted">Loading.</p>
+<div id="charts"></div>
+<script>
+"use strict";
+const REPO_URL = "https://github.com/avsej/couchbase-cxx-client";
+const NS = "http://www.w3.org/2000/svg";
+const get = (url) => fetch(url).then((r) => { if (!r.ok) throw new Error(url + ": " + r.status); return r.json(); });
+const el = (name, attrs, parent) => {
+  const e = document.createElementNS(NS, name);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+};
+const fmt = (ns) => ns >= 1e9 ? (ns / 1e9).toPrecision(3) + " s" : ns >= 1e6 ? (ns / 1e6).toPrecision(3) + " ms"
+  : ns >= 1e3 ? (ns / 1e3).toPrecision(3) + " µs" : ns.toPrecision(3) + " ns";
+
+function chart(key, points) {
+  const box = document.createElement("div");
+  const title = document.createElement("h2");
+  title.textContent = key;
+  const latest = document.createElement("div");
+  latest.className = "latest";
+  latest.textContent = "latest " + fmt(points[points.length - 1].v);
+  box.append(title, latest);
+  const W = 320, H = 80, P = 6;
+  const svg = el("svg", {viewBox: "0 0 " + W + " " + H, preserveAspectRatio: "none"}, box);
+  const vs = points.map((p) => p.v);
+  const lo = Math.min(...vs), hi = Math.max(...vs), span = hi - lo || 1;
+  const x = (i) => points.length === 1 ? W / 2 : P + i * (W - 2 * P) / (points.length - 1);
+  const y = (v) => H - P - (v - lo) * (H - 2 * P) / span;
+  el("line", {class: "grid", x1: 0, x2: W, y1: H - 1, y2: H - 1}, svg);
+  el("polyline", {class: "series", "vector-effect": "non-scaling-stroke",
+                  points: points.map((p, i) => x(i) + "," + y(p.v)).join(" ")}, svg);
+  points.forEach((p, i) => {
+    const a = el("a", {href: REPO_URL + "/commit/" + p.sha}, svg);
+    const c = el("circle", {class: "pt" + (p.cpuChanged ? " cpu" : ""), cx: x(i), cy: y(p.v), r: 3}, a);
+    el("title", {}, c).textContent = p.sha.slice(0, 12) + "  " + fmt(p.v) + "  " + p.date +
+      (p.cpuChanged ? "\nCPU: " + p.cpu + " (changed)" : "");
+  });
+  return box;
+}
+
+async function main() {
+  const index = (await get("data/index.json")).reverse();
+  const docs = await Promise.all(index.map((e) => get("data/" + e.sha + ".json").catch(() => null)));
+  const series = new Map();
+  docs.forEach((d, i) => {
+    if (!d) return;
+    for (const key in d.rows) {
+      if (!series.has(key)) series.set(key, []);
+      const points = series.get(key);
+      const cpu = d.rows[key].cpu_model || "unknown";
+      const cpuChanged = points.length > 0 && cpu !== points[points.length - 1].cpu;
+      points.push({sha: d.sha, date: index[i].date, v: d.rows[key].median, cpu, cpuChanged});
+    }
+  });
+  const charts = document.getElementById("charts");
+  for (const key of [...series.keys()].sort()) charts.appendChild(chart(key, series.get(key)));
+  document.getElementById("status").textContent = series.size ? "" : "No results recorded yet.";
+}
+main().catch((e) => { document.getElementById("status").textContent = "Could not load the results: " + e.message; });
+</script>
+</body></html>
