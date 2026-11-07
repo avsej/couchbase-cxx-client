@@ -20,7 +20,7 @@
 </style></head>
 <body>
 <h1>Performance history</h1>
-<p class="muted">Median time per operation (per iteration for batched keys) of each benchmark key at each commit of main, oldest to newest. The chart named after a key with "(CPU time)" shows the CPU time of the whole benchmark process per operation, every thread included. An orange point ran on a different CPU model than the point before it in the same chart. Each point links to its commit.</p>
+<p class="muted">Median time per operation (per iteration for batched keys) of each benchmark key at each commit of main, oldest to newest. The chart named after a key with "(CPU time)" shows the CPU time of the whole benchmark process per operation, every thread included. The chart named after a key with "(peak RSS)" shows the process's peak resident set size when the key finished. It is a high-water mark, so it covers every key the binary measured before. An orange point ran on a different CPU model than the point before it in the same chart. Each point links to its commit.</p>
 <p id="status" class="muted">Loading.</p>
 <div id="charts"></div>
 <script>
@@ -37,13 +37,17 @@ const el = (name, attrs, parent) => {
 const fmt = (ns) => ns >= 1_000_000_000 ? (ns / 1_000_000_000).toPrecision(3) + " s" : ns >= 1_000_000 ? (ns / 1_000_000).toPrecision(3) + " ms"
   : ns >= 1_000 ? (ns / 1_000).toPrecision(3) + " µs" : ns.toPrecision(3) + " ns";
 
-function chart(key, points) {
+const bytes = (b) => b >= 1_073_741_824 ? (b / 1_073_741_824).toPrecision(3) + " GiB" : b >= 1_048_576 ? (b / 1_048_576).toPrecision(3) + " MiB"
+  : b >= 1_024 ? (b / 1_024).toPrecision(3) + " KiB" : b + " B";
+
+// Every chart plots a cost, so lower is better in each.
+function chart(key, {points, fmt}) {
   const box = document.createElement("div");
   const title = document.createElement("h2");
   title.textContent = key;
   const latest = document.createElement("div");
   latest.className = "latest";
-  latest.textContent = "latest " + fmt(points[points.length - 1].v);
+  latest.textContent = "latest " + fmt(points[points.length - 1].v) + " · lower is better";
   box.append(title, latest);
   const W = 320, H = 80, P = 6;
   const svg = el("svg", {viewBox: "0 0 " + W + " " + H, preserveAspectRatio: "none"}, box);
@@ -72,14 +76,15 @@ async function main() {
     for (const key in d.rows) {
       const row = d.rows[key];
       const cpu = row.cpu_model || "unknown";
-      const add = (name, v) => {
-        if (!series.has(name)) series.set(name, []);
-        const points = series.get(name);
+      const add = (name, v, format = fmt) => {
+        if (!series.has(name)) series.set(name, {points: [], fmt: format});
+        const {points} = series.get(name);
         const cpuChanged = points.length > 0 && cpu !== points[points.length - 1].cpu;
         points.push({sha: d.sha, date: index[i].date, v, cpu, cpuChanged});
       };
       add(key, row.median);
       if (typeof row.cpu_ns_per_op === "number") add(key + " (CPU time)", row.cpu_ns_per_op);
+      if (typeof row.max_rss_bytes === "number") add(key + " (peak RSS)", row.max_rss_bytes, bytes);
     }
   });
   const charts = document.getElementById("charts");
