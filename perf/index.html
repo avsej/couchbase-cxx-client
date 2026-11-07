@@ -20,7 +20,7 @@
 </style></head>
 <body>
 <h1>Performance history</h1>
-<p class="muted">Median latency of each benchmark case at each commit of main, oldest to newest. An orange point ran on a different CPU model than the point before it in the same chart. Each point links to its commit.</p>
+<p class="muted">Median time per operation (per iteration for batched keys) of each benchmark key at each commit of main, oldest to newest. The chart named after a key with "(CPU time)" shows the CPU time of the whole benchmark process per operation, every thread included. An orange point ran on a different CPU model than the point before it in the same chart. Each point links to its commit.</p>
 <p id="status" class="muted">Loading.</p>
 <div id="charts"></div>
 <script>
@@ -34,8 +34,8 @@ const el = (name, attrs, parent) => {
   if (parent) parent.appendChild(e);
   return e;
 };
-const fmt = (ns) => ns >= 1e9 ? (ns / 1e9).toPrecision(3) + " s" : ns >= 1e6 ? (ns / 1e6).toPrecision(3) + " ms"
-  : ns >= 1e3 ? (ns / 1e3).toPrecision(3) + " µs" : ns.toPrecision(3) + " ns";
+const fmt = (ns) => ns >= 1_000_000_000 ? (ns / 1_000_000_000).toPrecision(3) + " s" : ns >= 1_000_000 ? (ns / 1_000_000).toPrecision(3) + " ms"
+  : ns >= 1_000 ? (ns / 1_000).toPrecision(3) + " µs" : ns.toPrecision(3) + " ns";
 
 function chart(key, points) {
   const box = document.createElement("div");
@@ -70,11 +70,16 @@ async function main() {
   docs.forEach((d, i) => {
     if (!d) return;
     for (const key in d.rows) {
-      if (!series.has(key)) series.set(key, []);
-      const points = series.get(key);
-      const cpu = d.rows[key].cpu_model || "unknown";
-      const cpuChanged = points.length > 0 && cpu !== points[points.length - 1].cpu;
-      points.push({sha: d.sha, date: index[i].date, v: d.rows[key].median, cpu, cpuChanged});
+      const row = d.rows[key];
+      const cpu = row.cpu_model || "unknown";
+      const add = (name, v) => {
+        if (!series.has(name)) series.set(name, []);
+        const points = series.get(name);
+        const cpuChanged = points.length > 0 && cpu !== points[points.length - 1].cpu;
+        points.push({sha: d.sha, date: index[i].date, v, cpu, cpuChanged});
+      };
+      add(key, row.median);
+      if (typeof row.cpu_ns_per_op === "number") add(key + " (CPU time)", row.cpu_ns_per_op);
     }
   });
   const charts = document.getElementById("charts");
