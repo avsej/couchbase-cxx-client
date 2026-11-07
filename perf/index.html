@@ -3,9 +3,9 @@
 <meta name="color-scheme" content="light dark">
 <title>Performance history</title>
 <style>
-  :root { --fg: #1f2328; --bg: #fff; --muted: #656d76; --grid: #d0d7de; --latency: #0969da; --cpu: #bc4c00; --rss: #1a7f37; }
+  :root { --fg: #1f2328; --bg: #fff; --muted: #656d76; --grid: #d0d7de; --latency: #0969da; --cpu: #bc4c00; --rss: #1a7f37; --throughput: #8250df; }
   @media (prefers-color-scheme: dark) {
-    :root { --fg: #e6edf3; --bg: #0d1117; --muted: #8b949e; --grid: #30363d; --latency: #58a6ff; --cpu: #f0883e; --rss: #3fb950; }
+    :root { --fg: #e6edf3; --bg: #0d1117; --muted: #8b949e; --grid: #30363d; --latency: #58a6ff; --cpu: #f0883e; --rss: #3fb950; --throughput: #bc8cff; }
   }
   body { font: 14px/1.4 system-ui, sans-serif; color: var(--fg); background: var(--bg); max-width: 72rem; margin: 0 auto; padding: 1rem; }
   nav { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; margin: 1rem 0; }
@@ -17,9 +17,8 @@
   .family { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: .75rem; }
   .chart { border: 1px solid var(--grid); border-radius: 6px; padding: .5rem; min-width: 0; }
   h4 { font: 12px ui-monospace, monospace; margin: 0; word-break: break-all; }
-  .latest { font-size: 12px; font-variant-numeric: tabular-nums; }
+  .latest { display: flex; flex-wrap: wrap; column-gap: .75em; font-size: 12px; font-variant-numeric: tabular-nums; }
   .latest span { white-space: nowrap; }
-  .delta, .better { margin-left: .75em; }
   .delta { color: var(--muted); }
   .better { color: var(--c); }
   .plot { display: grid; grid-template-columns: auto 1fr; gap: .375rem; margin-top: .25rem; }
@@ -61,11 +60,16 @@ const duration = (ns) => ns >= 1_000_000_000 ? (ns / 1_000_000_000).toPrecision(
 const bytes = (b) => b >= 1_073_741_824 ? (b / 1_073_741_824).toPrecision(3) + " GiB" : b >= 1_048_576 ? (b / 1_048_576).toPrecision(3) + " MiB"
   : b >= 1_024 ? (b / 1_024).toPrecision(3) + " KiB" : b + " B";
 
+const rate = (v) => (v >= 1_000_000 ? (v / 1_000_000).toPrecision(3) + "M" : v >= 1_000 ? (v / 1_000).toPrecision(3) + "k"
+  : v.toPrecision(3)) + " ops/s";
+
 // One section per measure, in this order. colour names a custom property of the stylesheet;
 // better is "lower" or "higher".
 const MEASURES = [
   {id: "latency", title: "Latency", colour: "--latency", fmt: duration, better: "lower", value: (row) => row.median,
    about: "Median time per operation of each key, per iteration for batched keys."},
+  {id: "throughput", title: "Throughput", colour: "--throughput", fmt: rate, better: "higher", value: (row) => row.ops_per_second,
+   about: "Operations per second across all threads of the key, for per-operation keys."},
   {id: "cpu", title: "CPU time per operation", colour: "--cpu", fmt: duration, better: "lower", value: (row) => row.cpu_ns_per_op,
    about: "CPU time of the whole benchmark process per operation, per iteration for batched keys. Every thread counts."},
   {id: "rss", title: "Peak RSS", colour: "--rss", fmt: bytes, better: "lower", value: (row) => row.max_rss_bytes,
