@@ -30,6 +30,7 @@
   .pt { fill: var(--c); }
   .pt.ring { fill: var(--bg); stroke: var(--c); stroke-width: 1.5; }
   .muted { color: var(--muted); }
+  .about { margin: -.25rem 0 .5rem; font-size: 13px; }
 </style></head>
 <body>
 <h1>Performance history</h1>
@@ -124,8 +125,15 @@ async function main() {
                   file: typeof e.id === "string" && /^[0-9a-f]{40}-\d{8}T\d{6}Z$/.test(e.id) ? e.id : e.sha}));
   const docs = await Promise.all(index.map((e) => get("data/" + e.file + ".json").catch(() => null)));
   const series = new Map(MEASURES.map((m) => [m.id, new Map()]));
+  // The description of each case, from the newest run that has one.
+  const about = new Map();
   docs.forEach((d, i) => {
     if (!d || typeof d !== "object") return;
+    if (d.descriptions && typeof d.descriptions === "object") {
+      for (const name in d.descriptions) {
+        if (typeof d.descriptions[name] === "string") about.set(name, d.descriptions[name]);
+      }
+    }
     for (const key in d.rows) {
       const row = d.rows[key];
       if (!row || typeof row !== "object") continue;
@@ -167,7 +175,9 @@ async function main() {
       for (const {key, name} of families.get(family).sort((a, b) => a.name < b.name ? -1 : 1)) {
         grid.append(chart(m, key, name, charts.get(key)));
       }
-      section.append(h("h3", {}, family), grid);
+      section.append(h("h3", {}, family));
+      if (about.has(family)) section.append(h("p", {class: "muted about"}, about.get(family)));
+      section.append(grid);
     }
     root.append(section);
     const link = h("a", {href: "#" + m.id, style: colour});
