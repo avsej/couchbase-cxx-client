@@ -33,7 +33,7 @@
 </style></head>
 <body>
 <h1>Performance history</h1>
-<p class="muted">Each chart plots one benchmark key at each run on main, oldest to newest: one per push and one every night. Each point links to the commit it measured. A hollow ring marks a point that ran on a different CPU model than the point before it in the same chart.</p>
+<p class="muted">Each chart plots one benchmark key at each run on main, oldest to newest: one per push and one every night. Each point links to the commit it measured. A hollow ring marks a point that ran on a different CPU model, or against a different server version, than the point before it in the same chart.</p>
 <nav id="jump" aria-label="Measures"></nav>
 <p id="status" class="muted">Loading.</p>
 <main id="charts"></main>
@@ -104,10 +104,12 @@ function chart(m, key, name, points) {
                   points: points.map((p, i) => x(i) + "," + y(p.v)).join(" ")}, svg);
   points.forEach((p, i) => {
     const a = el("a", {href: REPO_URL + "/commit/" + p.sha}, svg);
-    const c = el("circle", {class: p.cpuChanged ? "pt ring" : "pt", cx: x(i), cy: y(p.v), r: p.cpuChanged ? 4.5 : 3,
+    const ring = p.cpuChanged || p.serverChanged;
+    const c = el("circle", {class: ring ? "pt ring" : "pt", cx: x(i), cy: y(p.v), r: ring ? 4.5 : 3,
                             "vector-effect": "non-scaling-stroke"}, a);
     el("title", {}, c).textContent = p.sha.slice(0, 12) + "  " + m.fmt(p.v) + "  " + p.date +
-      (p.cpuChanged ? "\nCPU: " + p.cpu + " (changed)" : "");
+      (p.cpuChanged ? "\nCPU: " + p.cpu + " (changed)" : "") +
+      (p.server !== null ? "\nServer: " + p.server + (p.serverChanged ? " (changed)" : "") : "");
   });
   return box;
 }
@@ -134,8 +136,12 @@ async function main() {
         const charts = series.get(m.id);
         if (!charts.has(key)) charts.set(key, []);
         const points = charts.get(key);
-        const cpuChanged = points.length > 0 && cpu !== points[points.length - 1].cpu;
-        points.push({sha: index[i].sha, date: index[i].date, v, cpu, cpuChanged});
+        const prev = points[points.length - 1];
+        const cpuChanged = prev !== undefined && cpu !== prev.cpu;
+        // Only a change between two recorded versions counts; older points have none.
+        const server = typeof row.server_version === "string" ? row.server_version : null;
+        const serverChanged = prev !== undefined && server !== null && prev.server !== null && server !== prev.server;
+        points.push({sha: index[i].sha, date: index[i].date, v, cpu, cpuChanged, server, serverChanged});
       }
     }
   });
