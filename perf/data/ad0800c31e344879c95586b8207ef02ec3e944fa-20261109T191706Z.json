@@ -1,0 +1,306 @@
+{
+  "sha": "ad0800c31e344879c95586b8207ef02ec3e944fa",
+  "date": "2026-11-09T11:03:15-08:00",
+  "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+  "rows": {
+    "json_generate_binary/large": {
+      "median": 29012.375,
+      "lower": 28263.734375,
+      "upper": 31780.015625,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 29216.852988878592,
+      "max_rss_bytes": 34439168
+    },
+    "json_generate_binary/small": {
+      "median": 328.2021484375,
+      "lower": 324.143310546875,
+      "upper": 347.844970703125,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 331.9444334619602,
+      "max_rss_bytes": 34439168
+    },
+    "json_streaming_lexer/rows_10": {
+      "median": 2809.18359375,
+      "lower": 2803.91796875,
+      "upper": 2817.0712890625,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 2822.3984430923406,
+      "max_rss_bytes": 34439168
+    },
+    "json_streaming_lexer/rows_1000": {
+      "median": 164673.75,
+      "lower": 164297.125,
+      "upper": 165434.375,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 165873.3552631579,
+      "max_rss_bytes": 34439168
+    },
+    "kv_get/cluster/bare/q64": {
+      "median": 10261.916015625,
+      "lower": 10205.05078125,
+      "upper": 10833.51171875,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 15432.298492791611,
+      "max_rss_bytes": 34426880
+    },
+    "kv_get/cluster/bare/t1": {
+      "median": 120064.0,
+      "lower": 118016.0,
+      "upper": 122624.0,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 82652.60955038367,
+      "max_rss_bytes": 34426880,
+      "ops_per_second": 7875.783409767081
+    },
+    "kv_get/cluster/q64": {
+      "median": 11137.765625,
+      "lower": 11065.2578125,
+      "upper": 11232.65625,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 17293.459886695906,
+      "max_rss_bytes": 34426880
+    },
+    "kv_get/cluster/t1": {
+      "median": 125184.0,
+      "lower": 123136.0,
+      "upper": 154112.0,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 86893.17253196257,
+      "max_rss_bytes": 34426880,
+      "ops_per_second": 7578.658602459813
+    },
+    "kv_get/cluster/t8": {
+      "median": 253440.0,
+      "lower": 252416.0,
+      "upper": 343040.0,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 50451.70385324933,
+      "max_rss_bytes": 34426880,
+      "ops_per_second": 29909.598963312204
+    },
+    "kv_get/fake/bare/q64": {
+      "median": 5376.0625,
+      "lower": 4844.375,
+      "upper": 5538.88671875,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 9776.007961512261,
+      "max_rss_bytes": 34570240
+    },
+    "kv_get/fake/bare/t1": {
+      "median": 48000.0,
+      "lower": 47488.0,
+      "upper": 51328.0,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 56502.42140056883,
+      "max_rss_bytes": 34570240,
+      "ops_per_second": 19500.325599525288
+    },
+    "kv_get/fake/q64": {
+      "median": 6306.619140625,
+      "lower": 5917.19921875,
+      "upper": 6379.296875,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 11545.12796773539,
+      "max_rss_bytes": 34570240
+    },
+    "kv_get/fake/t1": {
+      "median": 51584.0,
+      "lower": 48256.0,
+      "upper": 56704.0,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 58973.84241323109,
+      "max_rss_bytes": 34570240,
+      "ops_per_second": 18701.18248485753
+    },
+    "kv_get/fake/t8": {
+      "median": 99072.0,
+      "lower": 98048.0,
+      "upper": 99584.0,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 25201.87141602521,
+      "max_rss_bytes": 34570240,
+      "ops_per_second": 77307.0621582703
+    },
+    "kv_upsert/cluster/bare/q64": {
+      "median": 44025.1015625,
+      "lower": 42945.203125,
+      "upper": 48790.1484375,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 25724.961596170335,
+      "max_rss_bytes": 34426880
+    },
+    "kv_upsert/cluster/bare/t1": {
+      "median": 271360.0,
+      "lower": 257536.0,
+      "upper": 287744.0,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 119017.39610658567,
+      "max_rss_bytes": 34426880,
+      "ops_per_second": 3202.7552735986346
+    },
+    "kv_upsert/cluster/q64": {
+      "median": 45029.421875,
+      "lower": 42756.03125,
+      "upper": 47306.96875,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 28753.69948776323,
+      "max_rss_bytes": 34426880
+    },
+    "kv_upsert/cluster/t1": {
+      "median": 277504.0,
+      "lower": 261632.0,
+      "upper": 289792.0,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 124082.79584046334,
+      "max_rss_bytes": 34426880,
+      "ops_per_second": 3168.260113894462
+    },
+    "kv_upsert/cluster/t8": {
+      "median": 862208.0,
+      "lower": 841728.0,
+      "upper": 948224.0,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 73661.3067602763,
+      "max_rss_bytes": 34426880,
+      "ops_per_second": 8427.78352405525
+    },
+    "kv_upsert/fake/bare/q64": {
+      "median": 6146.08984375,
+      "lower": 6050.9296875,
+      "upper": 6205.39453125,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 12911.301394828926,
+      "max_rss_bytes": 34570240
+    },
+    "kv_upsert/fake/bare/t1": {
+      "median": 51072.0,
+      "lower": 49024.0,
+      "upper": 56960.0,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 59834.988540870894,
+      "max_rss_bytes": 34570240,
+      "ops_per_second": 18314.241972782722
+    },
+    "kv_upsert/fake/q64": {
+      "median": 7158.0234375,
+      "lower": 7114.25390625,
+      "upper": 7354.021484375,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 14861.451964447464,
+      "max_rss_bytes": 34570240
+    },
+    "kv_upsert/fake/t1": {
+      "median": 52608.0,
+      "lower": 49792.0,
+      "upper": 60288.0,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 62311.7615693318,
+      "max_rss_bytes": 34570240,
+      "ops_per_second": 17803.810120690756
+    },
+    "kv_upsert/fake/t8": {
+      "median": 101120.0,
+      "lower": 100096.0,
+      "upper": 102144.0,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 29073.88603905951,
+      "max_rss_bytes": 34570240,
+      "ops_per_second": 75659.21989040522
+    },
+    "kv_upsert_get/cluster/c20": {
+      "median": 3858432.0,
+      "lower": 3334144.0,
+      "upper": 4087808.0,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 237433.2244086098,
+      "max_rss_bytes": 62763008,
+      "ops_per_second": 4845.024899475934
+    },
+    "kv_upsert_get/cluster/t20": {
+      "median": 2301952.0,
+      "lower": 2170880.0,
+      "upper": 2433024.0,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 118976.22447079273,
+      "max_rss_bytes": 34426880,
+      "ops_per_second": 8120.8434992124985
+    },
+    "kv_upsert_get/cluster/t20/raw": {
+      "median": 2220032.0,
+      "lower": 2027520.0,
+      "upper": 2301952.0,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 106873.72623800726,
+      "max_rss_bytes": 34426880,
+      "ops_per_second": 8236.202289251225
+    },
+    "kv_upsert_get/fake/c20": {
+      "median": 759808.0,
+      "lower": 751616.0,
+      "upper": 772096.0,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 131959.73232924283,
+      "max_rss_bytes": 76849152,
+      "ops_per_second": 25499.353365434414
+    },
+    "kv_upsert_get/fake/t20": {
+      "median": 435200.0,
+      "lower": 431104.0,
+      "upper": 439296.0,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 50815.2014873651,
+      "max_rss_bytes": 56315904,
+      "ops_per_second": 45275.53636936345
+    },
+    "kv_upsert_get/fake/t20/raw": {
+      "median": 424960.0,
+      "lower": 420864.0,
+      "upper": 429056.0,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 45511.54536856982,
+      "max_rss_bytes": 56508416,
+      "ops_per_second": 46468.472117188685
+    },
+    "mcbp_parser_next/plain": {
+      "median": 6383.466796875,
+      "lower": 5908.9814453125,
+      "upper": 6456.892578125,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 6389.570810843965,
+      "max_rss_bytes": 34439168
+    },
+    "mcbp_parser_next/snappy": {
+      "median": 6524.068359375,
+      "lower": 6431.333984375,
+      "upper": 6654.3916015625,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 6533.738943835731,
+      "max_rss_bytes": 34439168
+    },
+    "vbucket_hash/crc32_t1": {
+      "median": 11.044815063476562,
+      "lower": 11.039299011230469,
+      "upper": 11.052757263183594,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 11.070019936975028,
+      "max_rss_bytes": 34439168
+    },
+    "vbucket_hash/map_key_t1": {
+      "median": 18.15563201904297,
+      "lower": 18.093406677246094,
+      "upper": 18.328628540039062,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 18.2689939226423,
+      "max_rss_bytes": 34439168
+    },
+    "vbucket_hash/map_key_t8": {
+      "median": 30.150375366210938,
+      "lower": 30.092544555664062,
+      "upper": 30.6463623046875,
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "cpu_ns_per_op": 30.103795885463843,
+      "max_rss_bytes": 34439168
+    }
+  },
+  "run": "2026-11-09T19:17:06Z"
+}
