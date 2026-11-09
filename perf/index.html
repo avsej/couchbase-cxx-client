@@ -34,7 +34,7 @@
 </style></head>
 <body>
 <h1>Performance history</h1>
-<p class="muted">Each chart plots one benchmark key at each run on main, oldest to newest: one per push and one every night. Each point links to the commit it measured. A hollow ring marks a point that ran on a different CPU model, or against a different server version, than the point before it in the same chart.</p>
+<p class="muted">Each chart plots one benchmark key, oldest run first. The main branch gets a run on every push and every night. Each point links to the commit it measured. A hollow ring marks a change from the previous point: a new CPU model, or a new server version.</p>
 <nav id="jump" aria-label="Measures"></nav>
 <p id="status" class="muted">Loading.</p>
 <main id="charts"></main>
@@ -117,8 +117,8 @@ function chart(m, key, name, points) {
 
 async function main() {
   // Only entries with a commit id are fetched and linked. The commit id and the run id each
-  // become part of a path or a URL, so each must match its pattern. An older entry has no id,
-  // and its data file is named by the commit.
+  // become part of a path or a URL, so each must match its pattern. An entry without an id names
+  // its data file by its commit.
   const index = (await get("data/index.json")).reverse()
     .filter((e) => e && typeof e.sha === "string" && /^[0-9a-f]{7,40}$/.test(e.sha))
     .map((e) => ({sha: e.sha, date: typeof e.run === "string" ? e.run : e.date,
@@ -146,7 +146,7 @@ async function main() {
         const points = charts.get(key);
         const prev = points[points.length - 1];
         const cpuChanged = prev !== undefined && cpu !== prev.cpu;
-        // Only a change between two recorded versions counts; older points have none.
+        // A change counts only between two points that both record a version.
         const server = typeof row.server_version === "string" ? row.server_version : null;
         const serverChanged = prev !== undefined && server !== null && prev.server !== null && server !== prev.server;
         points.push({sha: index[i].sha, date: index[i].date, v, cpu, cpuChanged, server, serverChanged});
