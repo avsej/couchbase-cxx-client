@@ -1,5 +1,12 @@
 [
   {
+    "id": "7fb0c5621db0fe095d72d7a9d3f77251da059cfb-20261112T195508Z",
+    "sha": "7fb0c5621db0fe095d72d7a9d3f77251da059cfb",
+    "date": "2026-11-12T11:21:06-08:00",
+    "run": "2026-11-12T19:55:08Z",
+    "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C"
+  },
+  {
     "id": "6a2f8f537673a6320cd61c10db43cab5da70d95e-20261112T195507Z",
     "sha": "6a2f8f537673a6320cd61c10db43cab5da70d95e",
     "date": "2026-11-12T11:21:03-08:00",
