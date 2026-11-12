@@ -1,0 +1,14 @@
+libcouchbase_cxx_client.so.1.5 against previous commit 0ecef20: no ABI change
+
+Leaf changes summary: 0 artifact changed
+Changed leaf types summary: 0 leaf type changed
+Removed/Changed/Added functions summary: 0 Removed, 0 Changed, 0 Added function
+Removed/Changed/Added variables summary: 0 Removed, 0 Changed, 0 Added variable
+Unreachable types summary: 3 removed, 0 changed, 0 added types
+
+3 removed types unreachable from any public interface:
+
+  [D] 'class std::bad_cast'
+  [D] 'struct std::__detail::__to_chars_unsigned_type<longunsignedint>' at charconv:99:1
+  [D] 'struct std::__make_unsigned_selector_base::__select<8,std::__make_unsigned_selector_base::_List<longunsignedint,longlongunsignedint,__int128nsigned>,true>' at type_traits:1931:1
+
