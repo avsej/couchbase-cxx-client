@@ -1,0 +1,89 @@
+{
+  "sha": "8a2567ed2844251ffbbe2c533b203327726fa9de",
+  "date": "2026-11-12T11:21:11-08:00",
+  "cpu_model": "AMD EPYC 7763 64-Core Processor",
+  "rows": {
+    "json_generate_binary/large": {
+      "median": 34848.15625,
+      "lower": 34639.875,
+      "upper": 35241.4375,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 35146.17667597765,
+      "max_rss_bytes": 34885632
+    },
+    "json_generate_binary/small": {
+      "median": 396.9482421875,
+      "lower": 395.6181640625,
+      "upper": 399.8291015625,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 398.1119791666667,
+      "max_rss_bytes": 34885632
+    },
+    "json_streaming_lexer/rows_10": {
+      "median": 3636.9404296875,
+      "lower": 3624.1181640625,
+      "upper": 3707.0078125,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 3644.8655035846436,
+      "max_rss_bytes": 34885632
+    },
+    "json_streaming_lexer/rows_1000": {
+      "median": 207722.25,
+      "lower": 206426.25,
+      "upper": 210077.75,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 208595.4301075269,
+      "max_rss_bytes": 34885632
+    },
+    "mcbp_parser_next/plain": {
+      "median": 134.9010009765625,
+      "lower": 133.498291015625,
+      "upper": 145.68316650390625,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 135.38250762720628,
+      "max_rss_bytes": 34885632
+    },
+    "mcbp_parser_next/snappy": {
+      "median": 299.4083251953125,
+      "lower": 298.661376953125,
+      "upper": 300.99609375,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 301.28581725252445,
+      "max_rss_bytes": 34885632
+    },
+    "vbucket_hash/crc32_t1": {
+      "median": 13.089271545410156,
+      "lower": 13.083740234375,
+      "upper": 13.185409545898438,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 13.130233362760196,
+      "max_rss_bytes": 34885632
+    },
+    "vbucket_hash/map_key_t1": {
+      "median": 23.90839385986328,
+      "lower": 23.815460205078125,
+      "upper": 24.185638427734375,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 23.982679843902588,
+      "max_rss_bytes": 34885632
+    },
+    "vbucket_hash/map_key_t8": {
+      "median": 35.03300476074219,
+      "lower": 34.9993896484375,
+      "upper": 35.41790771484375,
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "cpu_ns_per_op": 35.05658494319694,
+      "max_rss_bytes": 34885632
+    }
+  },
+  "descriptions": {
+    "json_generate_binary": "Serialises a small JSON document and an 80-item nested document with core::utils::json::generate_binary.",
+    "json_streaming_lexer": "Parses a query response of 10 or 1,000 rows with core::utils::json::streaming_lexer, fed in 4 KiB chunks.",
+    "kv_get": "Gets one of 1,000 small JSON documents per operation, blocking on 1 or 8 threads, or 64 in flight.",
+    "kv_upsert": "Upserts one of 1,000 small JSON documents per operation, blocking on 1 or 8 threads, or 64 in flight.",
+    "kv_upsert_get": "Upserts, then gets, one of 100,000 512-byte JSON documents per operation on 20 threads.",
+    "mcbp_parser_next": "Decodes one GET response frame per iteration with mcbp_parser::next, plain and Snappy-compressed.",
+    "vbucket_hash": "Hashes a key with CRC32, and maps it to its vBucket and node in a 1,024-vBucket map."
+  },
+  "run": "2026-11-12T19:49:23Z"
+}
