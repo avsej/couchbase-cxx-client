@@ -1,0 +1,20 @@
+libcouchbase_cxx_client.so.1.5 against previous commit 4bb1871: no ABI change
+
+Leaf changes summary: 0 artifact changed
+Changed leaf types summary: 0 leaf type changed
+Removed/Changed/Added functions summary: 0 Removed, 0 Changed, 0 Added function
+Removed/Changed/Added variables summary: 0 Removed, 0 Changed, 0 Added variable
+Unreachable types summary: 0 removed, 0 changed, 9 added types
+
+9 added types unreachable from any public interface:
+
+  [A] 'class std::__make_unsigned_selector_base' at type_traits:1918:1
+  [A] 'struct __gnu_cxx::__ops::_Iter_pred<couchbase::core::operations::(anonymousnamespace)::finalize_projected_arrays(tao::json::value&,bool)::<lambda(consttao::json::value&)>>' at predefined_ops.h:304:1
+  [A] 'struct std::__detail::__to_chars_unsigned_type<int>' at charconv:99:1
+  [A] 'struct std::__make_unsigned_selector_base::_List<>' at type_traits:1921:1
+  [A] 'struct std::__make_unsigned_selector_base::_List<__int128nsigned>' at type_traits:1924:1
+  [A] 'struct std::__make_unsigned_selector_base::_List<longlongunsignedint,__int128nsigned>' at type_traits:1924:1
+  [A] 'struct std::__make_unsigned_selector_base::_List<longunsignedint,longlongunsignedint,__int128nsigned>' at type_traits:1924:1
+  [A] 'struct std::__make_unsigned_selector_base::_List<unsignedint,longunsignedint,longlongunsignedint,__int128nsigned>' at type_traits:1924:1
+  [A] 'struct std::__make_unsigned_selector_base::__select<4,std::__make_unsigned_selector_base::_List<unsignedint,longunsignedint,longlongunsignedint,__int128nsigned>,true>' at type_traits:1931:1
+
