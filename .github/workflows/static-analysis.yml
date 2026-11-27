@@ -1,0 +1,82 @@
+name: static-analysis
+permissions: {}
+
+# Runs clang's static analyzer with the opt-in and security checkers, which linters leaves off.
+# Publishes the findings as code-scanning alerts. Findings do not fail the job. A failed build,
+# merge or upload does.
+on:
+  push:
+    branches:
+      - main
+      - release-*
+  workflow_dispatch:
+
+env:
+  LLVM_VERSION: 22
+
+# A running analysis is not cancelled, so the alerts update even when pushes land faster than a run
+# takes. GitHub keeps one pending run per group and cancels older pending ones.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  clang_static_analyzer:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Install dependencies
+        timeout-minutes: 20
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libssl-dev cmake curl wget gnupg2 libcurl4-openssl-dev libprotobuf-dev libgrpc-dev libgrpc++-dev gdb protobuf-compiler protobuf-compiler-grpc
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor --output /etc/apt/keyrings/llvm-snapshot.gpg
+          sudo bash -c "echo 'deb [signed-by=/etc/apt/keyrings/llvm-snapshot.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-${LLVM_VERSION} main' >> /etc/apt/sources.list"
+          sudo apt-get update -y
+          sudo apt-get install -y clang-${LLVM_VERSION} clang-tools-${LLVM_VERSION}
+      - name: Run scan build
+        timeout-minutes: 240
+        run: ./bin/check-clang-static-analyzer
+        env:
+          CB_CC: /usr/bin/clang-${{ env.LLVM_VERSION }}
+          CB_CXX: /usr/bin/clang++-${{ env.LLVM_VERSION }}
+          CB_SCAN_BUILD: /usr/bin/scan-build-${{ env.LLVM_VERSION }}
+          CB_NUMBER_OF_JOBS: 4
+          CB_SCAN_BUILD_EXTRA_ARGS: >-
+            -sarif
+            -enable-checker optin.core.EnumCastOutOfRange
+            -enable-checker optin.cplusplus.UninitializedObject
+            -enable-checker optin.cplusplus.VirtualCall
+            -enable-checker optin.portability.UnixAPI
+            -enable-checker optin.taint.GenericTaint
+            -enable-checker optin.taint.TaintedAlloc
+            -enable-checker optin.taint.TaintedDiv
+            -enable-checker security.ArrayBound
+            -enable-checker security.FloatLoopCounter
+            -enable-checker security.MmapWriteExec
+            -enable-checker security.PutenvStackArray
+            -enable-checker security.SetgidSetuidOrder
+            -enable-checker security.cert.env.InvalidPtr
+            -enable-checker security.insecureAPI.strcpy
+            -enable-checker security.insecureAPI.rand
+      - name: Upload scan-build report
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: report
+          path: cmake-build-report.tar.gz
+      # scan-build writes one SARIF file per translation unit. Code scanning takes one run per
+      # tool and category, so they are merged, with paths made relative to the repository.
+      - name: Merge SARIF
+        run: ruby bin/merge-sarif.rb cmake-build-report "${GITHUB_WORKSPACE}" clang-static-analyzer.sarif
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: clang-static-analyzer.sarif
+          category: clang-static-analyzer
