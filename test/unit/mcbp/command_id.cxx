@@ -71,6 +71,21 @@ make_command_id_embeds_a_version_4_uuid([[maybe_unused]] context& ctx)
   assert_eq(uuid.size(), std::size_t{ 36 }, "the uuid is rendered in full");
   assert_eq(uuid[14], '4', "the uuid announces version 4");
 }
+
+void
+deliberate_assertion_failure([[maybe_unused]] context& ctx)
+{
+  assert_eq(1, 2, "a deliberate assertion failure");
+}
+
+void
+deliberate_heap_overflow([[maybe_unused]] context& ctx)
+{
+  auto* values = new int[4];
+  volatile int past_the_end = values[4];
+  delete[] values;
+  static_cast<void>(past_the_end);
+}
 } // namespace
 
 auto
@@ -82,6 +97,8 @@ tests() -> test_suite
       { CASE(make_command_id_renders_the_opcode_and_a_valid_uuid) },
       { CASE(make_command_id_encodes_the_opcode_byte) },
       { CASE(make_command_id_embeds_a_version_4_uuid) },
+      { CASE(deliberate_assertion_failure) },
+      { CASE(deliberate_heap_overflow) },
     },
   };
 }
