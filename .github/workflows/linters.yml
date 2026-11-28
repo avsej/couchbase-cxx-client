@@ -24,6 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # HEAD^, so bin/findings.rb puts findings on changed lines first.
+          fetch-depth: 2
           persist-credentials: false
       # The checker is a heuristic over argument names, so it can only report what looks
       # sensitive and is not wrapped. A pass is not proof that the logs are correctly redacted.
@@ -33,6 +35,11 @@ jobs:
         run: ./bin/check-log-annotations --self-test
       - name: Check log annotations
         run: ./bin/check-log-annotations
+      - name: Annotate log annotation findings
+        if: ${{ failure() }}
+        run: |
+          ./bin/check-log-annotations --positions > log-annotations.log || true
+          ruby bin/findings.rb --from gcc --tool log-annotations log-annotations.log
 
   check_cluster:
     runs-on: ubuntu-24.04
@@ -61,11 +68,16 @@ jobs:
           sudo bash -c "echo 'deb [signed-by=/etc/apt/keyrings/llvm-snapshot.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-${LLVM_VERSION} main' >> /etc/apt/sources.list"
           sudo apt-get update -y
           sudo apt-get install -y clang-format-${LLVM_VERSION}
+      # shell: bash sets pipefail, so the step keeps the status of the check, not of tee.
       - name: Run clang-format
-        run: ./bin/check-clang-format
+        shell: bash
+        run: ./bin/check-clang-format | tee clang-format.log
         env:
           CB_GIT_CLANG_FORMAT: /usr/bin/git-clang-format-${{ env.LLVM_VERSION }}
           CB_CLANG_FORMAT: /usr/bin/clang-format-${{ env.LLVM_VERSION }}
+      - name: Annotate clang-format findings
+        if: ${{ !cancelled() }}
+        run: ruby bin/findings.rb --from diff --tool clang-format clang-format.log
 
   clang_static_analyzer:
     runs-on: ubuntu-24.04
@@ -102,6 +114,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+          fetch-depth: 2
           persist-credentials: false
       - name: Install dependencies
         timeout-minutes: 20
@@ -113,10 +126,14 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y clang-${LLVM_VERSION}
       - name: Run cppcheck
-        run: ./bin/check-cppcheck
+        shell: bash
+        run: ./bin/check-cppcheck 2>&1 | tee cppcheck.log
         env:
           CB_CC: /usr/bin/clang-${{ env.LLVM_VERSION }}
           CB_CXX: /usr/bin/clang++-${{ env.LLVM_VERSION }}
+      - name: Annotate cppcheck findings
+        if: ${{ !cancelled() }}
+        run: ruby bin/findings.rb --from gcc --tool cppcheck cppcheck.log
 
   clang_tidy:
     runs-on: ubuntu-24.04
@@ -156,6 +173,9 @@ jobs:
           CB_CLANG_TIDY: /usr/bin/clang-tidy-${{ env.LLVM_VERSION }}
           CB_RUN_CLANG_TIDY: /usr/bin/run-clang-tidy-${{ env.LLVM_VERSION }}
           CB_NUMBER_OF_JOBS: 4
+      - name: Annotate clang-tidy findings
+        if: ${{ !cancelled() }}
+        run: ruby bin/findings.rb --from clang-tidy --tool clang-tidy cmake-build-clang-tidy/build/clang-tidy-fixes.yaml
       - name: Upload clang-tidy fixes
         if: ${{ failure() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

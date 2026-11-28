@@ -58,6 +58,7 @@
 #   bin/check-log-annotations              # check, non-zero exit if anything is unannotated
 #   bin/check-log-annotations --catalog    # inventory every log statement, for tracking drift
 #   bin/check-log-annotations --self-test  # check the analysis itself against a fixture
+#   bin/check-log-annotations --positions  # check, one "file:line: error: ..." line per finding
 #   bin/check-log-annotations core/io      # restrict the scan to some paths
 #
 # This is a heuristic. It reads argument expressions, not types, so it can only guess at what a
@@ -635,20 +636,32 @@ module LogAnnotations
     warn "\n#{statements.size} log statements"
   end
 
+  def self.suggestion(finding)
+    if finding.category == DOCUMENT
+      "wrap the whole argument in the strictest category any value inside it could " \
+        "belong to, or record the exclusion with not_redacted()"
+    elsif finding.category == MULTILINE
+      "remove the tag and record the exclusion with not_redacted(): escaping would keep " \
+        "the tag intact but flatten the dump onto one line"
+    else
+      "wrap in couchbase::core::logger::#{finding.category}()"
+    end
+  end
+
+  # The shape compilers print, which bin/findings.rb --from gcc reads.
+  def self.print_positions(findings)
+    findings.sort_by { |finding| [finding.file, finding.line, finding.identifier] }.each do |finding|
+      label = CATEGORY_LABELS[finding.category]
+      puts format("%s:%d: error: %s <%s>: %s [%s]",
+                  finding.file, finding.line, finding.identifier, label, suggestion(finding), label)
+    end
+  end
+
   def self.print_findings(findings)
     findings.group_by(&:file).sort.each do |file, in_file|
       puts file
       in_file.sort_by { |finding| [finding.line, finding.identifier] }.each do |finding|
-        suggestion =
-          if finding.category == DOCUMENT
-            "wrap the whole argument in the strictest category any value inside it could " \
-              "belong to, or record the exclusion with not_redacted()"
-          elsif finding.category == MULTILINE
-            "remove the tag and record the exclusion with not_redacted(): escaping would keep " \
-              "the tag intact but flatten the dump onto one line"
-          else
-            "wrap in couchbase::core::logger::#{finding.category}()"
-          end
+        suggestion = suggestion(finding)
         puts format("  %s:%d  %s  <%s>",
                     file, finding.line, finding.identifier, CATEGORY_LABELS[finding.category])
         puts format("    argument: %s", finding.argument)
@@ -816,6 +829,10 @@ module LogAnnotations
       opts.on("--self-test", "Check the analysis itself against a built-in fixture") do
         options[:mode] = :self_test
       end
+      opts.on("--positions", "Check, printing one file:line: error: line per finding") do
+        options[:mode] = :check
+        options[:positions] = true
+      end
       opts.on("-h", "--help", "Show this message") do
         puts opts
         exit 0
@@ -866,7 +883,7 @@ module LogAnnotations
       return 0
     end
 
-    print_findings(findings)
+    options[:positions] ? print_positions(findings) : print_findings(findings)
     1
   end
 end
