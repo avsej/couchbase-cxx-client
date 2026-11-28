@@ -71,6 +71,8 @@ make_command_id_embeds_a_version_4_uuid([[maybe_unused]] context& ctx)
   assert_eq(uuid.size(), std::size_t{ 36 }, "the uuid is rendered in full");
   assert_eq(uuid[14], '4', "the uuid announces version 4");
 }
+
+static_assert(sizeof(int) == 0, "a deliberate compile error");
 } // namespace
 
 auto
