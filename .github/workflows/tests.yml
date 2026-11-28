@@ -31,6 +31,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+          # HEAD^, so bin/findings.rb puts findings on changed lines first.
+          fetch-depth: 2
           persist-credentials: false
       - name: Validate test labels
         run: ./bin/validate-test-labels
@@ -38,9 +40,11 @@ jobs:
         uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
         with:
           key: ${{ github.job }}
+      # shell: bash sets pipefail, so the step keeps the status of the build, not of tee.
       - name: Build tests
         timeout-minutes: 40
-        run: ./bin/build-tests
+        shell: bash
+        run: ./bin/build-tests 2>&1 | tee build.log
         env:
           CB_NUMBER_OF_JOBS: 8
           # Generate and compile the Protostellar gRPC/protobuf stubs, and the CNG tests that use
@@ -48,6 +52,9 @@ jobs:
           # generated stubs are never built by CI, so codegen breakage would only ever surface
           # locally; later commits add the couchbase2:// transport on top of the same option.
           CB_COUCHBASE2: 1
+      - name: Annotate compiler findings
+        if: ${{ !cancelled() }}
+        run: ruby bin/findings.rb --from gcc --tool gcc build.log
       - name: Upload build artifacts
         if: ${{ success() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
