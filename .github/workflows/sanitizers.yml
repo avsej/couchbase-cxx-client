@@ -105,6 +105,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+          # HEAD^, so bin/findings.rb puts findings on changed lines first.
+          fetch-depth: 2
           persist-credentials: false
       - name: Download build artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -121,6 +123,12 @@ jobs:
         run: |
           chmod -R +x ./cmake-build-tests-${{ matrix.sanitizer }}
           ./bin/run-unit-tests
+      # Read before the next ctest run in this build tree replaces LastTest.log. The JUnit report
+      # is cut short and loses the failure lines a trace-level test prints last. Under
+      # --test-action memcheck (valgrind) the log is LastDynamicAnalysis_<timestamp>.log.
+      - name: Annotate unit test failures (${{ matrix.sanitizer }})
+        if: ${{ !cancelled() }}
+        run: ruby bin/findings.rb --from ctest --tool "unit-tests ${{ matrix.sanitizer }}" cmake-build-tests-${{ matrix.sanitizer }}/Testing/Temporary/LastTest.log cmake-build-tests-${{ matrix.sanitizer }}/Testing/Temporary/LastDynamicAnalysis_*.log
       - name: Run CNG tests (${{ matrix.sanitizer }})
         timeout-minutes: 30
         # Building the couchbase2 code is not enough to exercise it: the CNG tests carry LABELS "cng"
@@ -140,6 +148,9 @@ jobs:
         run: |
           ctest --test-dir ./cmake-build-tests-${{ matrix.sanitizer }} --output-on-failure \
                 --label-regex 'cng' --no-tests=error --output-junit cng-results.xml
+      - name: Annotate CNG test failures (${{ matrix.sanitizer }})
+        if: ${{ !cancelled() }}
+        run: ruby bin/findings.rb --from ctest --tool "cng-tests ${{ matrix.sanitizer }}" cmake-build-tests-${{ matrix.sanitizer }}/Testing/Temporary/LastTest.log
       - name: Upload report
         if: ${{ failure() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
