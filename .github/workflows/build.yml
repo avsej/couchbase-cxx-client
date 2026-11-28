@@ -26,6 +26,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+          # HEAD^, so bin/findings.rb puts findings on changed lines first.
+          fetch-depth: 2
           persist-credentials: false
       - name: ccache
         uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
@@ -41,7 +43,11 @@ jobs:
           # so the only added cost is generating and compiling the schema. Apple clang is otherwise
           # never exercised against the generated code.
           CB_COUCHBASE2: 1
-        run: ./bin/build-tests
+        shell: bash
+        run: ./bin/build-tests 2>&1 | tee build.log
+      - name: Annotate compiler findings (${{ matrix.os }})
+        if: ${{ !cancelled() }}
+        run: ruby bin/findings.rb --from gcc --tool clang build.log
       # Apple clang on these arm64 runners compiles hash_crc32 with the CRC32 instructions, and no
       # other job runs that path. The macro is required rather than assumed: without it the case
       # still passes on the software path, and the instructions go untested.
@@ -67,6 +73,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+          # HEAD^, so bin/findings.rb puts findings on changed lines first.
+          fetch-depth: 2
           persist-credentials: false
       - name: ccache
         uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
@@ -101,4 +109,9 @@ jobs:
           # protobuf/gRPC code needs special handling (see the MSVC branch of
           # cmake/Protostellar.cmake), which nothing else in CI would exercise.
           CB_COUCHBASE2: 1
-        run: ruby ./bin/build-tests.rb
+        # Git Bash: pipefail keeps the status of the build, not of tee.
+        shell: bash
+        run: ruby ./bin/build-tests.rb 2>&1 | tee build.log
+      - name: Annotate compiler findings (${{ matrix.os }})
+        if: ${{ !cancelled() }}
+        run: ruby bin/findings.rb --from msvc --tool msvc build.log

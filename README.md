@@ -4,6 +4,11 @@
 [![linters](https://img.shields.io/github/actions/workflow/status/couchbase/couchbase-cxx-client/linters.yml?branch=main&label=linters)](https://github.com/couchbase/couchbase-cxx-client/actions?query=workflow%3Alinters+branch%3Amain)
 [![sanitizers](https://img.shields.io/github/actions/workflow/status/couchbase/couchbase-cxx-client/sanitizers.yml?branch=main&label=sanitizers)](https://github.com/couchbase/couchbase-cxx-client/actions?query=workflow%3Asanitizers+branch%3Amain)
 [![tests](https://img.shields.io/github/actions/workflow/status/couchbase/couchbase-cxx-client/tests.yml?branch=main&label=tests)](https://github.com/couchbase/couchbase-cxx-client/actions?query=workflow%3Atests+branch%3Amain)
+[![build](https://img.shields.io/github/actions/workflow/status/couchbase/couchbase-cxx-client/build.yml?branch=main&label=build)](https://github.com/couchbase/couchbase-cxx-client/actions?query=workflow%3Abuild+branch%3Amain)
+[![abi](https://img.shields.io/github/actions/workflow/status/couchbase/couchbase-cxx-client/abi.yml?branch=main&label=abi)](https://github.com/couchbase/couchbase-cxx-client/actions?query=workflow%3Aabi+branch%3Amain)
+[![static-analysis](https://img.shields.io/github/actions/workflow/status/couchbase/couchbase-cxx-client/static-analysis.yml?branch=main&label=static-analysis)](https://github.com/couchbase/couchbase-cxx-client/actions?query=workflow%3Astatic-analysis+branch%3Amain)
+[![CodeQL](https://github.com/couchbase/couchbase-cxx-client/actions/workflows/github-code-scanning/codeql/badge.svg?branch=main)](https://github.com/couchbase/couchbase-cxx-client/security/code-scanning?query=branch%3Amain)
+[![release](https://img.shields.io/github/v/tag/couchbase/couchbase-cxx-client?sort=semver&label=release)](https://github.com/couchbase/couchbase-cxx-client/tags)
 
 * Documentation and User Guides: https://docs.couchbase.com/cxx-sdk/current/hello-world/start-using-sdk.html
 * API Reference: https://docs.couchbase.com/sdk-api/couchbase-cxx-client

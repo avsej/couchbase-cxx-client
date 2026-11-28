@@ -37,6 +37,9 @@ CB_CC=${CB_CC:-${CB_DEFAULT_CC}}
 CB_CXX=${CB_CXX:-${CB_DEFAULT_CXX}}
 CB_SCAN_BUILD=${CB_SCAN_BUILD:-${CB_DEFAULT_SCAN_BUILD}}
 CB_NUMBER_OF_JOBS=${CB_NUMBER_OF_JOBS:-2}
+# Extra scan-build arguments, such as -enable-checker. With -sarif, scan-build ignores
+# --status-bugs and exits with the build status.
+CB_SCAN_BUILD_EXTRA_ARGS=${CB_SCAN_BUILD_EXTRA_ARGS:-}
 
 echo "CB_CC=${CB_CC}"
 echo "CB_CXX=${CB_CXX}"
@@ -56,7 +59,7 @@ rm -rf "${BUILD_DIR}" "${REPORT_DIR}"
 mkdir -p "${BUILD_DIR}"
 cd "${BUILD_DIR}"
 
-SCAN_BUILD_ARGS="--exclude third_party --exclude _deps -o ${REPORT_DIR} --use-analyzer=${CB_CC} --use-c++=${CB_CXX} --use-cc=${CB_CC} --status-bugs"
+SCAN_BUILD_ARGS="--exclude third_party --exclude _deps -o ${REPORT_DIR} --use-analyzer=${CB_CC} --use-c++=${CB_CXX} --use-cc=${CB_CC} --status-bugs ${CB_SCAN_BUILD_EXTRA_ARGS}"
 
 ${CB_SCAN_BUILD} ${SCAN_BUILD_ARGS} ${CB_CMAKE} -DENABLE_CACHE=OFF  ..
 set +e
