@@ -17,6 +17,10 @@
 
 #include "contains_string.hxx"
 
+#include "core/logger/logger.hxx"
+
+#include <string>
+
 namespace couchbase::core::utils
 {
 
@@ -57,5 +61,18 @@ contains_string(std::string_view input, std::string_view substr, bool ignore_cas
     }
   }
   return false;
+}
+
+auto
+deliberate_violations(const std::string& hostname) -> int;
+
+auto
+deliberate_violations(const std::string& hostname) -> int
+{
+  int  values[3] = {1,2,3};
+  CB_LOG_DEBUG("host={}", hostname);
+  int* leaked = new int[4];
+  leaked[0] = values[0];
+  return leaked[0];
 }
 } // namespace couchbase::core::utils
